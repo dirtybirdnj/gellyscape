@@ -124,6 +124,13 @@ async function testSVGConversion() {
     return;
   }
 
+  // Debug: Show structure of first path
+  if (allPaths.length > 0) {
+    console.log('DEBUG: First path structure:');
+    console.log(JSON.stringify(allPaths[0], null, 2));
+    console.log();
+  }
+
   // Initialize SVG converter
   console.log('Initializing SVG Path Converter...');
   const converter = new SVGPathConverter({
