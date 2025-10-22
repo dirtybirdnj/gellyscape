@@ -286,8 +286,8 @@ async function testSVGConversion() {
     console.log();
   });
 
-  // Calculate bounds first for optimal viewBox
-  const bounds = converter.calculateBounds(allPaths);
+  // Calculate bounds from transformed SVG paths for optimal viewBox
+  const bounds = converter.calculateBoundsFromSVGPaths(svgPaths);
 
   // Generate complete SVG file
   console.log('='.repeat(80));
@@ -310,7 +310,7 @@ async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log();
 
-  console.log('Original PDF bounds (before transformation):');
+  console.log('Transformed SVG bounds (after coordinate transformation):');
   console.log(`  X: ${bounds.x.toFixed(2)} to ${(bounds.x + bounds.width).toFixed(2)}`);
   console.log(`  Y: ${bounds.y.toFixed(2)} to ${(bounds.y + bounds.height).toFixed(2)}`);
   console.log(`  Width: ${bounds.width.toFixed(2)}`);

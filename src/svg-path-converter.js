@@ -410,6 +410,61 @@ class SVGPathConverter {
       height: maxY - minY
     };
   }
+
+  /**
+   * Calculate bounds from transformed SVG path data
+   * Parses the 'd' attribute to extract actual rendered coordinates
+   * @param {Array} svgPaths - Array of SVG path objects with 'd' attribute
+   * @returns {Object} Bounding box {x, y, width, height}
+   */
+  calculateBoundsFromSVGPaths(svgPaths) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const svgPath of svgPaths) {
+      const pathData = svgPath.d;
+      if (!pathData) continue;
+
+      // Parse path data to extract coordinates
+      // Match M, L, C commands followed by coordinate pairs
+      const coordPattern = /([MLC])\s*([-\d.]+(?:\s+[-\d.]+)*)/g;
+      let match;
+
+      while ((match = coordPattern.exec(pathData)) !== null) {
+        const command = match[1];
+        const coords = match[2].trim().split(/\s+/).map(parseFloat);
+
+        // Process coordinate pairs
+        for (let i = 0; i < coords.length; i += 2) {
+          if (i + 1 < coords.length) {
+            const x = coords[i];
+            const y = coords[i + 1];
+
+            if (isFinite(x) && isFinite(y)) {
+              minX = Math.min(minX, x);
+              minY = Math.min(minY, y);
+              maxX = Math.max(maxX, x);
+              maxY = Math.max(maxY, y);
+            }
+          }
+        }
+      }
+    }
+
+    // Return safe bounds even if no valid coordinates found
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+      return { x: 0, y: 0, width: 828, height: 1692 };
+    }
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  }
 }
 
 module.exports = SVGPathConverter;
