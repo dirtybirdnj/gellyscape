@@ -57,61 +57,63 @@ async function testSVGConversion() {
     return;
   }
 
-  const streams = Array.isArray(contents) ? contents : [contents];
-  console.log(`Found ${streams.length} content stream(s) to parse`);
+  // Handle the case where contents might be a PDFArray
+  let streamRefs = [];
+
+  if (contents.constructor.name === 'PDFArray') {
+    console.log('Contents is a PDFArray, extracting stream references...');
+    streamRefs = contents.array; // Get the actual array of references
+    console.log(`Found ${streamRefs.length} stream reference(s) in array`);
+  } else if (Array.isArray(contents)) {
+    streamRefs = contents;
+    console.log(`Found ${streamRefs.length} stream reference(s)`);
+  } else {
+    streamRefs = [contents];
+    console.log('Found 1 stream reference');
+  }
 
   // Parse paths
   let allPaths = [];
-  for (let i = 0; i < streams.length; i++) {
+  for (let i = 0; i < streamRefs.length; i++) {
     try {
-      const streamRef = streams[i];
-      console.log(`  Stream ${i + 1}: Reference type:`, streamRef.constructor.name);
+      const streamRef = streamRefs[i];
+      console.log(`\n  Stream ${i + 1}/${streamRefs.length}:`);
+      console.log(`    Reference type: ${streamRef.constructor.name}`);
 
       const stream = pdfDoc.context.lookup(streamRef);
 
       if (!stream) {
-        console.log(`  Stream ${i + 1}: Could not lookup stream reference`);
+        console.log(`    Error: Could not lookup stream reference`);
         continue;
       }
 
-      console.log(`  Stream ${i + 1}: Stream type:`, stream.constructor.name);
-      console.log(`  Stream ${i + 1}: Stream properties:`, Object.keys(stream));
+      console.log(`    Stream type: ${stream.constructor.name}`);
 
       // Try different ways to access the content
       let contentData = null;
 
       if (stream.contents) {
         contentData = stream.contents;
-        console.log(`  Stream ${i + 1}: Found contents property (${contentData.length} bytes)`);
-      } else if (stream.getContents) {
+        console.log(`    Found contents property (${contentData.length} bytes)`);
+      } else if (stream.getContents && typeof stream.getContents === 'function') {
         contentData = stream.getContents();
-        console.log(`  Stream ${i + 1}: Got contents via getContents() (${contentData.length} bytes)`);
-      } else if (stream.dict && stream.dict.lookup) {
-        // Try to get the decoded stream data
-        try {
-          contentData = pdfDoc.context.lookup(streamRef, true);
-          if (contentData && contentData.contents) {
-            contentData = contentData.contents;
-            console.log(`  Stream ${i + 1}: Got contents via lookup with decode (${contentData.length} bytes)`);
-          }
-        } catch (e) {
-          console.log(`  Stream ${i + 1}: Decode attempt failed:`, e.message);
-        }
-      }
-
-      if (!contentData) {
-        console.log(`  Stream ${i + 1}: Could not find content data`);
+        console.log(`    Got contents via getContents() (${contentData.length} bytes)`);
+      } else {
+        console.log(`    Available properties: ${Object.keys(stream).join(', ')}`);
+        console.log(`    Error: Could not find content data`);
         continue;
       }
 
-      console.log(`  Parsing stream ${i + 1} (${contentData.length} bytes)...`);
+      console.log(`    Parsing ${contentData.length} bytes...`);
       const parser = new PDFContentParser();
       const paths = parser.parseContentStream(contentData);
-      console.log(`  Stream ${i + 1}: Found ${paths.length} paths`);
+      console.log(`    ✓ Found ${paths.length} paths`);
       allPaths = allPaths.concat(paths);
     } catch (streamError) {
-      console.error(`  Stream ${i + 1}: Error parsing - ${streamError.message}`);
-      console.error(streamError.stack);
+      console.error(`    Error: ${streamError.message}`);
+      if (streamError.stack) {
+        console.error(streamError.stack);
+      }
     }
   }
 
