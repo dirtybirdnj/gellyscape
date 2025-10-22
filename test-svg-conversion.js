@@ -75,6 +75,7 @@ async function testSVGConversion() {
 
   // Parse paths
   let allPaths = [];
+  let allTextObjects = [];
   for (let i = 0; i < streamRefs.length; i++) {
     try {
       const streamRef = streamRefs[i];
@@ -150,9 +151,10 @@ async function testSVGConversion() {
 
       console.log(`    Parsing ${contentData.length} bytes...`);
       const parser = new PDFContentParser();
-      const paths = parser.parseContentStream(contentData);
-      console.log(`    ✓ Found ${paths.length} paths`);
+      const { paths, textObjects } = parser.parseContentStream(contentData);
+      console.log(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
       allPaths = allPaths.concat(paths);
+      allTextObjects = allTextObjects.concat(textObjects);
     } catch (streamError) {
       console.error(`    Error: ${streamError.message}`);
       if (streamError.stack) {
@@ -161,7 +163,7 @@ async function testSVGConversion() {
     }
   }
 
-  console.log(`Extracted ${allPaths.length} paths from first page\n`);
+  console.log(`Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects from first page\n`);
 
   if (allPaths.length === 0) {
     console.log('No paths found. Cannot test conversion.');
@@ -303,14 +305,29 @@ async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log();
 
-  const svgContent = generateSampleSVG(svgPaths, svgWidth, svgHeight, bounds);
+  const svgContent = generateSampleSVG(svgPaths, allTextObjects, svgWidth, svgHeight, bounds, pdfHeight);
   const outputPath = path.join(__dirname, 'test-svg-output.svg');
   fs.writeFileSync(outputPath, svgContent);
 
   console.log(`SVG saved to: ${outputPath}`);
-  console.log(`Contains ALL ${svgPaths.length} paths from the PDF`);
+  console.log(`Contains ALL ${svgPaths.length} paths and ${allTextObjects.length} text objects from the PDF`);
   console.log(`File size: ${(svgContent.length / 1024 / 1024).toFixed(2)} MB`);
   console.log();
+
+  // Display text statistics
+  if (allTextObjects.length > 0) {
+    console.log('='.repeat(80));
+    console.log('TEXT OBJECTS');
+    console.log('='.repeat(80));
+    console.log();
+    console.log(`Total text objects extracted: ${allTextObjects.length}`);
+    console.log();
+    console.log('Sample text objects (first 10):');
+    allTextObjects.slice(0, 10).forEach((textObj, i) => {
+      console.log(`  ${i + 1}. "${textObj.text}" (font: ${textObj.font}, size: ${textObj.fontSize}, color: ${textObj.fillColor})`);
+    });
+    console.log();
+  }
 
   // Display bounds
   console.log('='.repeat(80));
@@ -333,6 +350,7 @@ async function testSVGConversion() {
       svgDimensions: { width: svgWidth, height: svgHeight },
       totalPathsExtracted: allPaths.length,
       totalPathsConverted: svgPaths.length,
+      totalTextObjects: allTextObjects.length,
       bounds
     },
     statistics: stats,
@@ -355,29 +373,60 @@ async function testSVGConversion() {
   console.log();
   console.log('Summary:');
   console.log(`  ✓ Loaded PDF with ${pages.length} pages`);
-  console.log(`  ✓ Extracted ${allPaths.length} paths from first page`);
+  console.log(`  ✓ Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects from first page`);
   console.log(`  ✓ Converted ${svgPaths.length} paths to SVG format`);
-  console.log(`  ✓ Generated complete SVG with ALL ${svgPaths.length} paths`);
+  console.log(`  ✓ Generated complete SVG with ALL ${svgPaths.length} paths and ${allTextObjects.length} text objects`);
   console.log(`  ✓ Coordinate transformation working correctly`);
   console.log();
   console.log('Next steps:');
   console.log('  1. Open test-svg-output.svg in a browser or SVG viewer');
-  console.log('  2. Verify paths are rendered correctly');
+  console.log('  2. Verify paths and text are rendered correctly');
   console.log('  3. Check that coordinates are properly transformed');
-  console.log('  4. Review test-svg-conversion.json for detailed data');
+  console.log('  4. Text elements are in a separate SVG group (id="text-elements")');
+  console.log('  5. Review test-svg-conversion.json for detailed data');
   console.log();
 }
 
 /**
- * Generate a complete SVG file with converted paths
+ * Generate a complete SVG file with converted paths and text
  */
-function generateSampleSVG(svgPaths, width, height, bounds) {
+function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeight) {
   const pathElements = svgPaths.map((svgPath, index) => {
     const converter = new SVGPathConverter();
     return converter.generatePathElement(svgPath, {
       id: `path-${index}`,
       className: `operation-${svgPath.operation}`
     });
+  });
+
+  // Transform text objects to SVG coordinates
+  const textElements = textObjects.map((textObj, index) => {
+    // Transform coordinates from PDF to SVG space
+    // Apply CTM transformation
+    const ctm = textObj.ctm;
+    let x = textObj.x;
+    let y = textObj.y;
+
+    // Apply transformation matrix
+    if (ctm) {
+      const transformedX = ctm.a * x + ctm.c * y + ctm.e;
+      const transformedY = ctm.b * x + ctm.d * y + ctm.f;
+      x = transformedX;
+      y = transformedY;
+    }
+
+    // Flip Y coordinate (PDF origin is bottom-left, SVG is top-left)
+    y = pdfHeight - y;
+
+    // Escape text for XML
+    const escapedText = (textObj.text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
+    return `<text id="text-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${textObj.fillColor}" class="pdf-text" data-font="${textObj.font}">${escapedText}</text>`;
   });
 
   // Use bounds to create optimal viewBox if provided
@@ -398,16 +447,21 @@ function generateSampleSVG(svgPaths, width, height, bounds) {
      height="${height}"
      viewBox="${viewBox}">
   <title>GeoPDF to SVG Conversion - Complete</title>
-  <desc>Complete conversion of all ${svgPaths.length} paths from VT_Burlington_20240809_TM_geo.pdf</desc>
+  <desc>Complete conversion of all ${svgPaths.length} paths and ${textObjects.length} text objects from VT_Burlington_20240809_TM_geo.pdf</desc>
 
   <style>
     .operation-stroke { }
     .operation-fill { }
     .operation-fill-stroke { }
+    .pdf-text { font-family: Arial, sans-serif; }
   </style>
 
-  <g id="test-paths">
+  <g id="map-paths">
 ${pathElements.map(el => '    ' + el).join('\n')}
+  </g>
+
+  <g id="text-elements">
+${textElements.map(el => '    ' + el).join('\n')}
   </g>
 </svg>`;
 }

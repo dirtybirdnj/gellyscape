@@ -8,15 +8,23 @@ class PDFContentParser {
   constructor() {
     this.paths = [];
     this.currentPath = null;
+    this.textObjects = [];
     this.graphicsState = new GraphicsState();
     this.stateStack = [];
     this.debugCount = 0; // For debugging
+
+    // Text state
+    this.inTextObject = false;
+    this.currentFont = null;
+    this.currentFontSize = 0;
+    this.textMatrix = [1, 0, 0, 1, 0, 0]; // Tm
+    this.textLineMatrix = [1, 0, 0, 1, 0, 0]; // Tlm
   }
 
   /**
-   * Parse a PDF content stream and extract all vector paths
+   * Parse a PDF content stream and extract all vector paths and text
    * @param {Buffer|Uint8Array} stream - Raw content stream data
-   * @returns {Array} Array of path objects with geometry and style
+   * @returns {Object} Object with paths and textObjects arrays
    */
   parseContentStream(stream) {
     try {
@@ -29,10 +37,13 @@ class PDFContentParser {
       // Process tokens and build paths
       this.processTokens(tokens);
 
-      return this.paths;
+      return {
+        paths: this.paths,
+        textObjects: this.textObjects
+      };
     } catch (error) {
       console.error('Error parsing content stream:', error);
-      return [];
+      return { paths: [], textObjects: [] };
     }
   }
 
@@ -193,13 +204,48 @@ class PDFContentParser {
         // These require color space context, skip for now
         break;
 
-      // Text operators (we'll ignore these for vector extraction)
+      // Text operators
       case 'BT': // begin text
+        this.opBeginText();
+        break;
       case 'ET': // end text
-      case 'Td': case 'TD': case 'Tm': case 'T*': // text positioning
-      case 'Tj': case 'TJ': case "'": case '"': // text showing
-      case 'Tc': case 'Tw': case 'Tz': case 'TL': case 'Tf': case 'Tr': case 'Ts': // text state
-        // Ignore text operators
+        this.opEndText();
+        break;
+      case 'Tf': // set font and size
+        this.opSetFont(operands);
+        break;
+      case 'Tm': // set text matrix
+        this.opSetTextMatrix(operands);
+        break;
+      case 'Td': // move text position
+        this.opMoveText(operands);
+        break;
+      case 'TD': // move text position and set leading
+        this.opMoveTextSetLeading(operands);
+        break;
+      case 'T*': // move to start of next line
+        this.opNextLine();
+        break;
+      case 'Tj': // show text
+        this.opShowText(operands);
+        break;
+      case 'TJ': // show text with positioning
+        this.opShowTextPositioned(operands);
+        break;
+      case "'": // move to next line and show text
+        this.opNextLine();
+        this.opShowText(operands);
+        break;
+      case '"': // set word/char spacing, move to next line, show text
+        // operands: [aw, ac, string]
+        if (operands.length >= 3) {
+          this.opNextLine();
+          this.opShowText([operands[2]]);
+        }
+        break;
+      // Text state operators (spacing, scaling, etc.) - track but don't need to process
+      case 'Tc': case 'Tw': case 'Tz': case 'TL': case 'Tr': case 'Ts':
+        // Character spacing, word spacing, horizontal scaling, leading, render mode, rise
         break;
 
       default:
@@ -544,6 +590,133 @@ class PDFContentParser {
       e: m1.e * m2.a + m1.f * m2.c + m2.e,
       f: m1.e * m2.b + m1.f * m2.d + m2.f
     };
+  }
+
+  // ============================================================================
+  // Text Operators
+  // ============================================================================
+
+  opBeginText() {
+    this.inTextObject = true;
+    // Reset text matrices to identity
+    this.textMatrix = [1, 0, 0, 1, 0, 0];
+    this.textLineMatrix = [1, 0, 0, 1, 0, 0];
+  }
+
+  opEndText() {
+    this.inTextObject = false;
+  }
+
+  opSetFont(operands) {
+    // Tf: font name, size
+    if (operands.length >= 2) {
+      this.currentFont = operands[0]; // Font resource name (e.g., /F1)
+      this.currentFontSize = parseFloat(operands[1]);
+    }
+  }
+
+  opSetTextMatrix(operands) {
+    // Tm: a b c d e f (6 numbers defining transformation matrix)
+    if (operands.length >= 6) {
+      this.textMatrix = operands.map(parseFloat);
+      // Text line matrix is also set to the same value
+      this.textLineMatrix = [...this.textMatrix];
+    }
+  }
+
+  opMoveText(operands) {
+    // Td: tx ty (translate text position)
+    if (operands.length >= 2) {
+      const tx = parseFloat(operands[0]);
+      const ty = parseFloat(operands[1]);
+      // Update text line matrix: Tlm = Tlm * [1 0 0 1 tx ty]
+      this.textLineMatrix[4] += tx;
+      this.textLineMatrix[5] += ty;
+      // Text matrix follows
+      this.textMatrix = [...this.textLineMatrix];
+    }
+  }
+
+  opMoveTextSetLeading(operands) {
+    // TD: tx ty (same as Td but also sets leading)
+    this.opMoveText(operands);
+  }
+
+  opNextLine() {
+    // T*: Move to start of next line (uses text leading)
+    // For simplicity, just move down
+    this.textLineMatrix[5] -= this.currentFontSize * 1.2; // Approximate line spacing
+    this.textMatrix = [...this.textLineMatrix];
+  }
+
+  opShowText(operands) {
+    // Tj: (string) - show a text string
+    if (operands.length >= 1 && this.inTextObject) {
+      const textString = this.decodeTextString(operands[0]);
+
+      // Extract position from text matrix (e, f components)
+      const x = this.textMatrix[4];
+      const y = this.textMatrix[5];
+
+      this.textObjects.push({
+        text: textString,
+        x: x,
+        y: y,
+        font: this.currentFont,
+        fontSize: this.currentFontSize,
+        fillColor: this.graphicsState.fillColor,
+        ctm: { ...this.graphicsState.ctm }
+      });
+    }
+  }
+
+  opShowTextPositioned(operands) {
+    // TJ: [(string) offset (string) offset ...] - show text with positioning
+    if (operands.length >= 1 && this.inTextObject) {
+      const array = operands[0];
+
+      // Parse array - could be a string like "[(text)-123(more)]"
+      if (typeof array === 'string') {
+        // Extract strings from array notation
+        const matches = array.matchAll(/\(([^)]*)\)/g);
+        for (const match of matches) {
+          const textString = this.decodeTextString(`(${match[1]})`);
+
+          const x = this.textMatrix[4];
+          const y = this.textMatrix[5];
+
+          this.textObjects.push({
+            text: textString,
+            x: x,
+            y: y,
+            font: this.currentFont,
+            fontSize: this.currentFontSize,
+            fillColor: this.graphicsState.fillColor,
+            ctm: { ...this.graphicsState.ctm }
+          });
+        }
+      }
+    }
+  }
+
+  decodeTextString(pdfString) {
+    // Remove parentheses from PDF string literal
+    if (pdfString.startsWith('(') && pdfString.endsWith(')')) {
+      pdfString = pdfString.slice(1, -1);
+    }
+
+    // Decode escape sequences
+    pdfString = pdfString
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\b/g, '\b')
+      .replace(/\\f/g, '\f')
+      .replace(/\\\(/g, '(')
+      .replace(/\\\)/g, ')')
+      .replace(/\\\\/g, '\\');
+
+    return pdfString;
   }
 }
 
