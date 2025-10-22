@@ -52,6 +52,11 @@ tmp/
 temp/
 *.tmp
 
+# Test output files
+output/
+test-svg-output.svg
+test-svg-conversion.json
+
 # Debug logs
 npm-debug.log*
 yarn-debug.log*

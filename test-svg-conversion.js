@@ -18,6 +18,30 @@ async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log();
 
+  // Setup output directory
+  const outputDir = path.join(__dirname, 'output');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+    console.log('Created output directory\n');
+  }
+
+  // Clean up old output files
+  console.log('Cleaning up old output files...');
+  const filesToClean = [
+    path.join(outputDir, 'test-svg-output.svg'),
+    path.join(outputDir, 'test-svg-conversion.json'),
+    path.join(__dirname, 'test-svg-output.svg'),  // Old location
+    path.join(__dirname, 'test-svg-conversion.json')  // Old location
+  ];
+
+  filesToClean.forEach(file => {
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+      console.log(`  Deleted: ${path.basename(file)}`);
+    }
+  });
+  console.log();
+
   // Load sample GeoPDF
   const samplePath = path.join(__dirname, 'samples', 'VT_Burlington_20240809_TM_geo.pdf');
 
@@ -177,6 +201,23 @@ async function testSVGConversion() {
     console.log();
   }
 
+  // Debug: Show text extraction results
+  if (allTextObjects.length > 0) {
+    console.log('DEBUG: Text extraction working!');
+    console.log(`First 5 text objects:`);
+    allTextObjects.slice(0, 5).forEach((textObj, i) => {
+      console.log(`  ${i + 1}. "${textObj.text}" at (${textObj.x.toFixed(1)}, ${textObj.y.toFixed(1)}) - font: ${textObj.font}, size: ${textObj.fontSize}`);
+    });
+    console.log();
+  } else {
+    console.log('WARNING: No text objects extracted from PDF!');
+    console.log('This could mean:');
+    console.log('  - The PDF uses a different text encoding');
+    console.log('  - Text is rendered as paths/outlines');
+    console.log('  - Text operators are not in the main content stream');
+    console.log();
+  }
+
   // Initialize SVG converter
   console.log('Initializing SVG Path Converter...');
 
@@ -306,7 +347,7 @@ async function testSVGConversion() {
   console.log();
 
   const svgContent = generateSampleSVG(svgPaths, allTextObjects, svgWidth, svgHeight, bounds, pdfHeight);
-  const outputPath = path.join(__dirname, 'test-svg-output.svg');
+  const outputPath = path.join(outputDir, 'test-svg-output.svg');
   fs.writeFileSync(outputPath, svgContent);
 
   console.log(`SVG saved to: ${outputPath}`);
@@ -361,7 +402,7 @@ async function testSVGConversion() {
     }))
   };
 
-  const jsonOutputPath = path.join(__dirname, 'test-svg-conversion.json');
+  const jsonOutputPath = path.join(outputDir, 'test-svg-conversion.json');
   fs.writeFileSync(jsonOutputPath, JSON.stringify(detailedOutput, null, 2));
 
   console.log(`Detailed conversion data saved to: ${jsonOutputPath}`);
@@ -379,11 +420,11 @@ async function testSVGConversion() {
   console.log(`  ✓ Coordinate transformation working correctly`);
   console.log();
   console.log('Next steps:');
-  console.log('  1. Open test-svg-output.svg in a browser or SVG viewer');
+  console.log('  1. Open output/test-svg-output.svg in a browser or SVG viewer');
   console.log('  2. Verify paths and text are rendered correctly');
   console.log('  3. Check that coordinates are properly transformed');
   console.log('  4. Text elements are in a separate SVG group (id="text-elements")');
-  console.log('  5. Review test-svg-conversion.json for detailed data');
+  console.log('  5. Review output/test-svg-conversion.json for detailed data');
   console.log();
 }
 
