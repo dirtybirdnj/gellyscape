@@ -41,18 +41,41 @@ async function testSVGConversion() {
   console.log(`PDF page dimensions: ${pdfWidth} x ${pdfHeight} points`);
 
   // Get content stream
-  const pageDict = firstPage.node;
+  const pageDict = firstPage.node.dict;
   const contents = pageDict.get(pageDict.context.obj('/Contents'));
+
+  if (!contents) {
+    console.error('Error: No content stream found on first page');
+    return;
+  }
+
   const streams = Array.isArray(contents) ? contents : [contents];
+  console.log(`Found ${streams.length} content stream(s) to parse`);
 
   // Parse paths
   let allPaths = [];
-  for (const streamRef of streams) {
-    const stream = pdfDoc.context.lookup(streamRef);
-    if (stream && stream.contents) {
+  for (let i = 0; i < streams.length; i++) {
+    try {
+      const streamRef = streams[i];
+      const stream = pdfDoc.context.lookup(streamRef);
+
+      if (!stream) {
+        console.log(`  Stream ${i + 1}: Could not lookup stream reference`);
+        continue;
+      }
+
+      if (!stream.contents) {
+        console.log(`  Stream ${i + 1}: Stream has no contents`);
+        continue;
+      }
+
+      console.log(`  Parsing stream ${i + 1} (${stream.contents.length} bytes)...`);
       const parser = new PDFContentParser();
       const paths = parser.parseContentStream(stream.contents);
+      console.log(`  Stream ${i + 1}: Found ${paths.length} paths`);
       allPaths = allPaths.concat(paths);
+    } catch (streamError) {
+      console.error(`  Stream ${i + 1}: Error parsing - ${streamError.message}`);
     }
   }
 
