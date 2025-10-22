@@ -5,7 +5,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --enable-logging"
+    "dev": "electron . --enable-logging",
+    "test:parser": "node test-pdf-parser.js",
+    "test:svg": "node test-svg-conversion.js",
+    "test": "npm run test:parser && npm run test:svg"
   },
   "repository": {
     "type": "git",
