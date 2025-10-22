@@ -40,12 +40,15 @@ async function testSVGConversion() {
 
   console.log(`PDF page dimensions: ${pdfWidth} x ${pdfHeight} points`);
 
-  // Get content stream
+  // Get content stream - use pdfDoc.context instead of pageDict.context
   const pageDict = firstPage.node.dict;
-  const contents = pageDict.get(pageDict.context.obj('/Contents'));
+  const contentsKey = pdfDoc.context.obj('/Contents');
+  const contents = pageDict.get(contentsKey);
 
   if (!contents) {
     console.error('Error: No content stream found on first page');
+    console.log('\nDebugging page dictionary:');
+    console.log('Available keys:', pageDict.keys());
     return;
   }
 
