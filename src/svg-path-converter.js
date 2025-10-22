@@ -271,6 +271,21 @@ class SVGPathConverter {
   }
 
   /**
+   * Escape special XML characters in attribute values
+   * @param {string} str - String to escape
+   * @returns {string} Escaped string
+   */
+  escapeXML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  /**
    * Convert style object to SVG attribute string
    * @param {Object} style - Style object
    * @returns {string} SVG attributes string
@@ -278,29 +293,29 @@ class SVGPathConverter {
   styleToAttributes(style) {
     const attrs = [];
 
-    if (style.fill !== undefined) {
-      attrs.push(`fill="${style.fill}"`);
+    if (style.fill !== undefined && style.fill !== null) {
+      attrs.push(`fill="${this.escapeXML(style.fill)}"`);
     }
-    if (style.fillOpacity !== undefined) {
-      attrs.push(`fill-opacity="${style.fillOpacity}"`);
+    if (style.fillOpacity !== undefined && style.fillOpacity !== null) {
+      attrs.push(`fill-opacity="${this.escapeXML(style.fillOpacity)}"`);
     }
-    if (style.fillRule !== undefined) {
-      attrs.push(`fill-rule="${style.fillRule}"`);
+    if (style.fillRule !== undefined && style.fillRule !== null) {
+      attrs.push(`fill-rule="${this.escapeXML(style.fillRule)}"`);
     }
-    if (style.stroke !== undefined) {
-      attrs.push(`stroke="${style.stroke}"`);
+    if (style.stroke !== undefined && style.stroke !== null) {
+      attrs.push(`stroke="${this.escapeXML(style.stroke)}"`);
     }
-    if (style.strokeWidth !== undefined) {
-      attrs.push(`stroke-width="${style.strokeWidth}"`);
+    if (style.strokeWidth !== undefined && style.strokeWidth !== null) {
+      attrs.push(`stroke-width="${this.escapeXML(style.strokeWidth)}"`);
     }
-    if (style.strokeLinecap !== undefined) {
-      attrs.push(`stroke-linecap="${style.strokeLinecap}"`);
+    if (style.strokeLinecap !== undefined && style.strokeLinecap !== null) {
+      attrs.push(`stroke-linecap="${this.escapeXML(style.strokeLinecap)}"`);
     }
-    if (style.strokeLinejoin !== undefined) {
-      attrs.push(`stroke-linejoin="${style.strokeLinejoin}"`);
+    if (style.strokeLinejoin !== undefined && style.strokeLinejoin !== null) {
+      attrs.push(`stroke-linejoin="${this.escapeXML(style.strokeLinejoin)}"`);
     }
-    if (style.strokeDasharray !== undefined) {
-      attrs.push(`stroke-dasharray="${style.strokeDasharray}"`);
+    if (style.strokeDasharray !== undefined && style.strokeDasharray !== null) {
+      attrs.push(`stroke-dasharray="${this.escapeXML(style.strokeDasharray)}"`);
     }
 
     return attrs.join(' ');
@@ -313,11 +328,15 @@ class SVGPathConverter {
    * @returns {string} SVG path element string
    */
   generatePathElement(svgPath, options = {}) {
-    const id = options.id ? ` id="${options.id}"` : '';
-    const className = options.className ? ` class="${options.className}"` : '';
+    const id = options.id ? ` id="${this.escapeXML(options.id)}"` : '';
+    const className = options.className ? ` class="${this.escapeXML(options.className)}"` : '';
     const attributes = this.styleToAttributes(svgPath.style);
+    const pathData = this.escapeXML(svgPath.d);
 
-    return `<path${id}${className} d="${svgPath.d}" ${attributes}/>`;
+    // Ensure proper spacing between attributes
+    const attrStr = attributes ? ` ${attributes}` : '';
+
+    return `<path${id}${className} d="${pathData}"${attrStr}/>`;
   }
 
   /**
