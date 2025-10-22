@@ -89,18 +89,49 @@ async function testSVGConversion() {
 
       console.log(`    Stream type: ${stream.constructor.name}`);
 
-      // Try different ways to access the content
+      // Get DECODED stream content (not raw compressed data)
       let contentData = null;
 
-      if (stream.contents) {
-        contentData = stream.contents;
-        console.log(`    Found contents property (${contentData.length} bytes)`);
-      } else if (stream.getContents && typeof stream.getContents === 'function') {
-        contentData = stream.getContents();
-        console.log(`    Got contents via getContents() (${contentData.length} bytes)`);
-      } else {
-        console.log(`    Available properties: ${Object.keys(stream).join(', ')}`);
-        console.log(`    Error: Could not find content data`);
+      try {
+        // PDFRawStream needs to be decoded - access via decode() or getContents()
+        if (typeof stream.decode === 'function') {
+          contentData = stream.decode();
+          console.log(`    Decoded stream via decode() (${contentData.length} bytes)`);
+        } else if (typeof stream.getContents === 'function') {
+          contentData = stream.getContents();
+          console.log(`    Got contents via getContents() (${contentData.length} bytes)`);
+        } else if (stream.contents) {
+          // Try to decode manually using pdf-lib's internal decoder
+          const { dict } = stream;
+          if (dict) {
+            // Use pdf-lib's context to decode the stream
+            const decodedStream = pdfDoc.context.lookup(streamRef, true);
+            if (decodedStream && decodedStream.contents) {
+              contentData = decodedStream.contents;
+              console.log(`    Decoded via context.lookup (${contentData.length} bytes)`);
+            }
+          }
+
+          // Fallback to raw contents (might be compressed)
+          if (!contentData) {
+            contentData = stream.contents;
+            console.log(`    Using raw contents - may be compressed (${contentData.length} bytes)`);
+          }
+        } else {
+          console.log(`    Available properties: ${Object.keys(stream).join(', ')}`);
+          console.log(`    Error: Could not find content data`);
+          continue;
+        }
+      } catch (decodeError) {
+        console.log(`    Decode error: ${decodeError.message}`);
+        console.log(`    Trying raw contents as fallback...`);
+        if (stream.contents) {
+          contentData = stream.contents;
+        }
+      }
+
+      if (!contentData) {
+        console.log(`    Error: No content data available`);
         continue;
       }
 
