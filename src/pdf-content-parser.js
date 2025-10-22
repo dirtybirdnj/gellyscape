@@ -10,6 +10,7 @@ class PDFContentParser {
     this.currentPath = null;
     this.graphicsState = new GraphicsState();
     this.stateStack = [];
+    this.debugCount = 0; // For debugging
   }
 
   /**
@@ -211,7 +212,21 @@ class PDFContentParser {
   // Path construction operators
 
   opMoveTo(operands) {
-    if (operands.length < 2) return;
+    if (operands.length < 2) {
+      if (this.debugCount < 3) {
+        console.log('DEBUG opMoveTo: Not enough operands:', operands);
+        this.debugCount++;
+      }
+      return;
+    }
+
+    if (this.debugCount < 3) {
+      console.log('DEBUG opMoveTo operands:', operands);
+      const x = parseFloat(operands[0]);
+      const y = parseFloat(operands[1]);
+      console.log('DEBUG opMoveTo parsed:', { x, y });
+      this.debugCount++;
+    }
 
     const x = parseFloat(operands[0]);
     const y = parseFloat(operands[1]);
