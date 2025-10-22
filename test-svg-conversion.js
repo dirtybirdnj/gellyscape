@@ -177,11 +177,19 @@ async function testSVGConversion() {
 
   // Initialize SVG converter
   console.log('Initializing SVG Path Converter...');
+
+  // Calculate SVG dimensions to preserve PDF aspect ratio
+  // Scale to target width while maintaining aspect ratio
+  const targetWidth = 1728;  // Use PDF width directly for 1:1 scale
+  const aspectRatio = pdfWidth / pdfHeight;
+  const svgWidth = targetWidth;
+  const svgHeight = Math.round(targetWidth / aspectRatio);
+
   const converter = new SVGPathConverter({
     pdfWidth,
     pdfHeight,
-    svgWidth: 828,  // Target dimensions from btv-crop-11.5x23.5.svg
-    svgHeight: 1692,
+    svgWidth,
+    svgHeight,
     precision: 2,
     flipY: true,
     applyTransform: true
@@ -189,7 +197,7 @@ async function testSVGConversion() {
 
   console.log('Converter settings:');
   console.log(`  PDF dimensions: ${pdfWidth} x ${pdfHeight}`);
-  console.log(`  SVG dimensions: 828 x 1692`);
+  console.log(`  SVG dimensions: ${svgWidth} x ${svgHeight} (preserves aspect ratio ${aspectRatio.toFixed(3)})`);
   console.log(`  Coordinate precision: 2 decimal places`);
   console.log(`  Y-axis flip: enabled`);
   console.log(`  Transform application: enabled\n`);
@@ -295,7 +303,7 @@ async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log();
 
-  const svgContent = generateSampleSVG(svgPaths, 828, 1692, bounds);
+  const svgContent = generateSampleSVG(svgPaths, svgWidth, svgHeight, bounds);
   const outputPath = path.join(__dirname, 'test-svg-output.svg');
   fs.writeFileSync(outputPath, svgContent);
 
@@ -322,7 +330,7 @@ async function testSVGConversion() {
     metadata: {
       pdfFile: path.basename(samplePath),
       pdfDimensions: { width: pdfWidth, height: pdfHeight },
-      svgDimensions: { width: 828, height: 1692 },
+      svgDimensions: { width: svgWidth, height: svgHeight },
       totalPathsExtracted: allPaths.length,
       totalPathsConverted: svgPaths.length,
       bounds
