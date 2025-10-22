@@ -103,6 +103,13 @@ async function testSVGConversion() {
         if (typeof stream.getContentsString === 'function') {
           // getContentsString() returns DECOMPRESSED content as string
           const contentStr = stream.getContentsString();
+
+          if (i === 0) {
+            // Show first 200 chars to see if it's decompressed
+            console.log(`    First 200 chars of content:`, contentStr.substring(0, 200));
+            console.log(`    Looks like PDF operators?`, /\s[a-z]{1,2}\s/.test(contentStr.substring(0, 200)));
+          }
+
           contentData = Buffer.from(contentStr, 'binary');
           console.log(`    Decoded via getContentsString() (${contentData.length} bytes)`);
         } else if (typeof stream.decode === 'function') {
