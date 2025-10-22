@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, PDFName } = require('pdf-lib');
 const PDFContentParser = require('./src/pdf-content-parser');
 const SVGPathConverter = require('./src/svg-path-converter');
 
@@ -40,15 +40,20 @@ async function testSVGConversion() {
 
   console.log(`PDF page dimensions: ${pdfWidth} x ${pdfHeight} points`);
 
-  // Get content stream - use pdfDoc.context instead of pageDict.context
+  // Get content stream - use PDFName to create the key
   const pageDict = firstPage.node.dict;
-  const contentsKey = pdfDoc.context.obj('/Contents');
+  const contentsKey = PDFName.of('Contents');
   const contents = pageDict.get(contentsKey);
 
   if (!contents) {
     console.error('Error: No content stream found on first page');
     console.log('\nDebugging page dictionary:');
     console.log('Available keys:', pageDict.keys());
+    console.log('Trying to get Contents with different approaches...');
+
+    // Try looking up directly
+    const allEntries = Array.from(pageDict.entries());
+    console.log('All entries:', allEntries.map(([k, v]) => [k.toString(), v.constructor.name]));
     return;
   }
 
