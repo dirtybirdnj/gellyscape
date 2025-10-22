@@ -93,29 +93,40 @@ async function testSVGConversion() {
       let contentData = null;
 
       try {
-        // PDFRawStream needs to be decoded - access via decode() or getContents()
+        // Debug: Check what methods are available
+        if (i === 0) {
+          console.log(`    Available methods:`, Object.getOwnPropertyNames(Object.getPrototypeOf(stream)).filter(m => typeof stream[m] === 'function'));
+          console.log(`    Stream dict keys:`, stream.dict ? Array.from(stream.dict.keys()).map(k => k.toString()) : 'no dict');
+        }
+
+        // PDFRawStream needs to be decoded - try various methods
         if (typeof stream.decode === 'function') {
           contentData = stream.decode();
           console.log(`    Decoded stream via decode() (${contentData.length} bytes)`);
-        } else if (typeof stream.getContents === 'function') {
-          contentData = stream.getContents();
-          console.log(`    Got contents via getContents() (${contentData.length} bytes)`);
+        } else if (typeof stream.decodeContents === 'function') {
+          contentData = stream.decodeContents();
+          console.log(`    Decoded via decodeContents() (${contentData.length} bytes)`);
         } else if (stream.contents) {
-          // Try to decode manually using pdf-lib's internal decoder
+          // Manually decode using pako (zlib decompression)
           const { dict } = stream;
-          if (dict) {
-            // Use pdf-lib's context to decode the stream
-            const decodedStream = pdfDoc.context.lookup(streamRef, true);
-            if (decodedStream && decodedStream.contents) {
-              contentData = decodedStream.contents;
-              console.log(`    Decoded via context.lookup (${contentData.length} bytes)`);
-            }
+          const filterKey = PDFName.of('Filter');
+          const filter = dict ? dict.get(filterKey) : null;
+
+          if (i === 0 && filter) {
+            console.log(`    Stream Filter:`, filter.toString());
           }
 
-          // Fallback to raw contents (might be compressed)
-          if (!contentData) {
-            contentData = stream.contents;
-            console.log(`    Using raw contents - may be compressed (${contentData.length} bytes)`);
+          // For now, use raw contents and we'll see what we get
+          // Most PDF streams use FlateDecode (zlib/deflate compression)
+          contentData = stream.contents;
+          console.log(`    Using raw stream contents (${contentData.length} bytes) - likely compressed`);
+
+          // Check first few bytes to confirm it's compressed
+          const header = contentData.slice(0, 10);
+          const headerStr = Array.from(header).map(b => b.toString(16).padStart(2, '0')).join(' ');
+          if (i === 0) {
+            console.log(`    First 10 bytes: ${headerStr}`);
+            console.log(`    (0x78 0x9c or 0x78 0xda indicates zlib compression)`);
           }
         } else {
           console.log(`    Available properties: ${Object.keys(stream).join(', ')}`);
