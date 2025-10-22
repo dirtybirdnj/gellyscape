@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { PDFDocument, PDFName } = require('pdf-lib');
 const PDFContentParser = require('./src/pdf-content-parser');
 const SVGPathConverter = require('./src/svg-path-converter');
@@ -93,57 +94,46 @@ async function testSVGConversion() {
       let contentData = null;
 
       try {
-        // Debug: Check what methods are available
+        // Debug: Check what methods are available (only for first stream)
         if (i === 0) {
           console.log(`    Available methods:`, Object.getOwnPropertyNames(Object.getPrototypeOf(stream)).filter(m => typeof stream[m] === 'function'));
           console.log(`    Stream dict keys:`, stream.dict ? Array.from(stream.dict.keys()).map(k => k.toString()) : 'no dict');
         }
 
-        // PDFRawStream needs to be decoded - try various methods
-        if (typeof stream.getContentsString === 'function') {
-          // getContentsString() returns DECOMPRESSED content as string
-          const contentStr = stream.getContentsString();
+        // Get filter type to determine decompression method
+        const { dict } = stream;
+        const filterKey = PDFName.of('Filter');
+        const filter = dict ? dict.get(filterKey) : null;
 
-          if (i === 0) {
-            // Show first 200 chars to see if it's decompressed
-            console.log(`    First 200 chars of content:`, contentStr.substring(0, 200));
-            console.log(`    Looks like PDF operators?`, /\s[a-z]{1,2}\s/.test(contentStr.substring(0, 200)));
-          }
+        if (i === 0 && filter) {
+          console.log(`    Stream Filter:`, filter.toString());
+        }
 
-          contentData = Buffer.from(contentStr, 'binary');
-          console.log(`    Decoded via getContentsString() (${contentData.length} bytes)`);
-        } else if (typeof stream.decode === 'function') {
-          contentData = stream.decode();
-          console.log(`    Decoded stream via decode() (${contentData.length} bytes)`);
-        } else if (typeof stream.decodeContents === 'function') {
-          contentData = stream.decodeContents();
-          console.log(`    Decoded via decodeContents() (${contentData.length} bytes)`);
-        } else if (stream.contents) {
-          // Manually decode using pako (zlib decompression)
-          const { dict } = stream;
-          const filterKey = PDFName.of('Filter');
-          const filter = dict ? dict.get(filterKey) : null;
+        // Get raw compressed content
+        const rawContent = stream.getContents();
 
-          if (i === 0 && filter) {
-            console.log(`    Stream Filter:`, filter.toString());
-          }
+        // Decompress based on filter type
+        if (filter && filter.toString() === '/FlateDecode') {
+          // Use Node's zlib to decompress FlateDecode streams
+          try {
+            contentData = zlib.inflateSync(Buffer.from(rawContent));
+            console.log(`    Decompressed FlateDecode stream (${rawContent.length} → ${contentData.length} bytes)`);
 
-          // For now, use raw contents and we'll see what we get
-          // Most PDF streams use FlateDecode (zlib/deflate compression)
-          contentData = stream.contents;
-          console.log(`    Using raw stream contents (${contentData.length} bytes) - likely compressed`);
-
-          // Check first few bytes to confirm it's compressed
-          const header = contentData.slice(0, 10);
-          const headerStr = Array.from(header).map(b => b.toString(16).padStart(2, '0')).join(' ');
-          if (i === 0) {
-            console.log(`    First 10 bytes: ${headerStr}`);
-            console.log(`    (0x78 0x9c or 0x78 0xda indicates zlib compression)`);
+            if (i === 0) {
+              // Verify decompression worked
+              const preview = contentData.toString('latin1').substring(0, 200);
+              console.log(`    First 200 chars:`, preview);
+              console.log(`    Contains PDF operators:`, /\s[a-z]{1,2}\s/.test(preview));
+            }
+          } catch (zlibError) {
+            console.log(`    Zlib decompression failed: ${zlibError.message}`);
+            console.log(`    Trying raw content...`);
+            contentData = rawContent;
           }
         } else {
-          console.log(`    Available properties: ${Object.keys(stream).join(', ')}`);
-          console.log(`    Error: Could not find content data`);
-          continue;
+          // No filter or unknown filter - use raw content
+          contentData = rawContent;
+          console.log(`    Using raw content (${contentData.length} bytes, filter: ${filter ? filter.toString() : 'none'})`);
         }
       } catch (decodeError) {
         console.log(`    Decode error: ${decodeError.message}`);
