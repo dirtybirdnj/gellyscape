@@ -100,7 +100,12 @@ async function testSVGConversion() {
         }
 
         // PDFRawStream needs to be decoded - try various methods
-        if (typeof stream.decode === 'function') {
+        if (typeof stream.getContentsString === 'function') {
+          // getContentsString() returns DECOMPRESSED content as string
+          const contentStr = stream.getContentsString();
+          contentData = Buffer.from(contentStr, 'binary');
+          console.log(`    Decoded via getContentsString() (${contentData.length} bytes)`);
+        } else if (typeof stream.decode === 'function') {
           contentData = stream.decode();
           console.log(`    Decoded stream via decode() (${contentData.length} bytes)`);
         } else if (typeof stream.decodeContents === 'function') {
