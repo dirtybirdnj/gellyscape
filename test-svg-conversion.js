@@ -65,6 +65,8 @@ async function testSVGConversion() {
   for (let i = 0; i < streams.length; i++) {
     try {
       const streamRef = streams[i];
+      console.log(`  Stream ${i + 1}: Reference type:`, streamRef.constructor.name);
+
       const stream = pdfDoc.context.lookup(streamRef);
 
       if (!stream) {
@@ -72,18 +74,44 @@ async function testSVGConversion() {
         continue;
       }
 
-      if (!stream.contents) {
-        console.log(`  Stream ${i + 1}: Stream has no contents`);
+      console.log(`  Stream ${i + 1}: Stream type:`, stream.constructor.name);
+      console.log(`  Stream ${i + 1}: Stream properties:`, Object.keys(stream));
+
+      // Try different ways to access the content
+      let contentData = null;
+
+      if (stream.contents) {
+        contentData = stream.contents;
+        console.log(`  Stream ${i + 1}: Found contents property (${contentData.length} bytes)`);
+      } else if (stream.getContents) {
+        contentData = stream.getContents();
+        console.log(`  Stream ${i + 1}: Got contents via getContents() (${contentData.length} bytes)`);
+      } else if (stream.dict && stream.dict.lookup) {
+        // Try to get the decoded stream data
+        try {
+          contentData = pdfDoc.context.lookup(streamRef, true);
+          if (contentData && contentData.contents) {
+            contentData = contentData.contents;
+            console.log(`  Stream ${i + 1}: Got contents via lookup with decode (${contentData.length} bytes)`);
+          }
+        } catch (e) {
+          console.log(`  Stream ${i + 1}: Decode attempt failed:`, e.message);
+        }
+      }
+
+      if (!contentData) {
+        console.log(`  Stream ${i + 1}: Could not find content data`);
         continue;
       }
 
-      console.log(`  Parsing stream ${i + 1} (${stream.contents.length} bytes)...`);
+      console.log(`  Parsing stream ${i + 1} (${contentData.length} bytes)...`);
       const parser = new PDFContentParser();
-      const paths = parser.parseContentStream(stream.contents);
+      const paths = parser.parseContentStream(contentData);
       console.log(`  Stream ${i + 1}: Found ${paths.length} paths`);
       allPaths = allPaths.concat(paths);
     } catch (streamError) {
       console.error(`  Stream ${i + 1}: Error parsing - ${streamError.message}`);
+      console.error(streamError.stack);
     }
   }
 
