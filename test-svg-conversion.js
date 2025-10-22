@@ -286,28 +286,30 @@ async function testSVGConversion() {
     console.log();
   });
 
-  // Generate sample SVG file
+  // Calculate bounds first for optimal viewBox
+  const bounds = converter.calculateBounds(allPaths);
+
+  // Generate complete SVG file
   console.log('='.repeat(80));
-  console.log('GENERATING SAMPLE SVG');
+  console.log('GENERATING COMPLETE SVG');
   console.log('='.repeat(80));
   console.log();
 
-  const svgContent = generateSampleSVG(svgPaths.slice(0, 1000), 828, 1692);
+  const svgContent = generateSampleSVG(svgPaths, 828, 1692, bounds);
   const outputPath = path.join(__dirname, 'test-svg-output.svg');
   fs.writeFileSync(outputPath, svgContent);
 
-  console.log(`Sample SVG saved to: ${outputPath}`);
-  console.log(`Contains first 1000 paths from the PDF`);
-  console.log(`File size: ${(svgContent.length / 1024).toFixed(2)} KB`);
+  console.log(`SVG saved to: ${outputPath}`);
+  console.log(`Contains ALL ${svgPaths.length} paths from the PDF`);
+  console.log(`File size: ${(svgContent.length / 1024 / 1024).toFixed(2)} MB`);
   console.log();
 
-  // Calculate bounds
+  // Display bounds
   console.log('='.repeat(80));
   console.log('COORDINATE BOUNDS');
   console.log('='.repeat(80));
   console.log();
 
-  const bounds = converter.calculateBounds(allPaths);
   console.log('Original PDF bounds (before transformation):');
   console.log(`  X: ${bounds.x.toFixed(2)} to ${(bounds.x + bounds.width).toFixed(2)}`);
   console.log(`  Y: ${bounds.y.toFixed(2)} to ${(bounds.y + bounds.height).toFixed(2)}`);
@@ -347,7 +349,7 @@ async function testSVGConversion() {
   console.log(`  ✓ Loaded PDF with ${pages.length} pages`);
   console.log(`  ✓ Extracted ${allPaths.length} paths from first page`);
   console.log(`  ✓ Converted ${svgPaths.length} paths to SVG format`);
-  console.log(`  ✓ Generated sample SVG with 1000 paths`);
+  console.log(`  ✓ Generated complete SVG with ALL ${svgPaths.length} paths`);
   console.log(`  ✓ Coordinate transformation working correctly`);
   console.log();
   console.log('Next steps:');
@@ -361,7 +363,7 @@ async function testSVGConversion() {
 /**
  * Generate a complete SVG file with converted paths
  */
-function generateSampleSVG(svgPaths, width, height) {
+function generateSampleSVG(svgPaths, width, height, bounds) {
   const pathElements = svgPaths.map((svgPath, index) => {
     const converter = new SVGPathConverter();
     return converter.generatePathElement(svgPath, {
@@ -370,13 +372,25 @@ function generateSampleSVG(svgPaths, width, height) {
     });
   });
 
+  // Use bounds to create optimal viewBox if provided
+  let viewBox = `0 0 ${width} ${height}`;
+  if (bounds) {
+    // Add 5% padding around content
+    const padding = Math.max(bounds.width, bounds.height) * 0.05;
+    const vbX = bounds.x - padding;
+    const vbY = bounds.y - padding;
+    const vbWidth = bounds.width + (padding * 2);
+    const vbHeight = bounds.height + (padding * 2);
+    viewBox = `${vbX.toFixed(2)} ${vbY.toFixed(2)} ${vbWidth.toFixed(2)} ${vbHeight.toFixed(2)}`;
+  }
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      width="${width}"
      height="${height}"
-     viewBox="0 0 ${width} ${height}">
-  <title>GeoPDF to SVG Conversion Test</title>
-  <desc>Sample conversion of first 1000 paths from VT_Burlington_20240809_TM_geo.pdf</desc>
+     viewBox="${viewBox}">
+  <title>GeoPDF to SVG Conversion - Complete</title>
+  <desc>Complete conversion of all ${svgPaths.length} paths from VT_Burlington_20240809_TM_geo.pdf</desc>
 
   <style>
     .operation-stroke { }
