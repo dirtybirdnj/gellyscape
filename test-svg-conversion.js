@@ -17,8 +17,26 @@ const SVGPathConverter = require('./src/svg-path-converter');
 const args = process.argv.slice(2);
 const includeMarsh = args.includes('--include-marsh');
 
-// Marsh symbol character (U+F0ED in Webdings/C2_1 font)
-const MARSH_SYMBOL = String.fromCharCode(0xF0ED);
+// Marsh/swamp area symbols (these are decorative patterns that make files huge)
+const MARSH_SYMBOLS = {
+  webdings: String.fromCharCode(0xF0ED),  // U+F0ED in Webdings/C2_1
+  horizontalBar: String.fromCharCode(0x2015), // U+2015 horizontal bar
+  verticalBar: String.fromCharCode(0x2502),   // U+2502 vertical bar (box drawing)
+  otherWebdings: String.fromCharCode(0xF035) // U+F035 in Webdings/C2_1
+};
+
+// Function to check if a text object is a marsh symbol
+function isMarshSymbol(textObj) {
+  if (textObj.font === '/C2_1' &&
+      (textObj.text === MARSH_SYMBOLS.webdings || textObj.text === MARSH_SYMBOLS.otherWebdings)) {
+    return true;
+  }
+  if (textObj.font === '/C2_0' &&
+      (textObj.text === MARSH_SYMBOLS.horizontalBar || textObj.text === MARSH_SYMBOLS.verticalBar)) {
+    return true;
+  }
+  return false;
+}
 
 async function testSVGConversion() {
   console.log('='.repeat(80));
@@ -552,8 +570,7 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
   const regularTexts = [];
 
   textObjects.forEach(textObj => {
-    const isMarsh = textObj.font === '/C2_1' && textObj.text === MARSH_SYMBOL;
-    if (isMarsh) {
+    if (isMarshSymbol(textObj)) {
       marshTexts.push(textObj);
     } else {
       regularTexts.push(textObj);
@@ -564,6 +581,28 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
   console.log(`  Regular text: ${regularTexts.length}`);
   console.log(`  Marsh symbols: ${marshTexts.length}`);
   console.log(`  Marsh layer: ${includeMarsh ? 'INCLUDED in output' : 'EXCLUDED from output'}`);
+
+  // Report non-alphanumeric glyphs in regular text
+  const glyphCounts = {};
+  regularTexts.forEach(t => {
+    if (!t.text) return;
+    // Check if text contains non-alphanumeric characters (excluding common punctuation and spaces)
+    const nonAlphanumeric = /[^a-zA-Z0-9\s.,;:!?\-'"/()&]/.test(t.text);
+    if (nonAlphanumeric || t.text.length === 1) {
+      const key = `${t.font}: '${t.text}' (U+${t.text.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`;
+      glyphCounts[key] = (glyphCounts[key] || 0) + 1;
+    }
+  });
+
+  if (Object.keys(glyphCounts).length > 0) {
+    console.log(`\nNon-alphanumeric glyphs in output (potential artifacts):`);
+    Object.entries(glyphCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30)  // Show top 30
+      .forEach(([key, count]) => {
+        console.log(`  ${count.toString().padStart(5)} x ${key}`);
+      });
+  }
 
   // Transform regular text objects to SVG coordinates
   const regularTextElements = regularTexts.map((textObj, index) => {
@@ -658,9 +697,11 @@ ${marshTextElements.map(el => '    ' + el).join('\n')}
     .operation-fill-stroke { }
     .pdf-text {
       font-family: Arial, sans-serif;
-      /* Add text stroke for better visibility */
-      stroke: #000000;
-      stroke-width: 0.3;
+      /* Override fill color to black for readability (use !important to override inline styles) */
+      fill: #000000 !important;
+      /* Add subtle white stroke for contrast against dark backgrounds */
+      stroke: #ffffff;
+      stroke-width: 0.2;
       paint-order: stroke fill;
     }
     .marsh-symbol { opacity: 0.8; }
