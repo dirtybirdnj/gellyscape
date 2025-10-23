@@ -787,24 +787,42 @@ class PDFContentParser {
    */
   extractToUnicodeCMap(fontName) {
     try {
-      if (!this.fontDict) return null;
+      if (!this.fontDict) {
+        if (!this.loggedCMapWarning) {
+          console.log(`  [CMap] No fontDict available - text won't be decoded`);
+          this.loggedCMapWarning = true;
+        }
+        return null;
+      }
 
       // Remove leading slash from font name
       const cleanFontName = fontName.startsWith('/') ? fontName.substring(1) : fontName;
 
       // Look up font in font dictionary
       const fontRef = this.fontDict.get(cleanFontName);
-      if (!fontRef) return null;
+      if (!fontRef) {
+        console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary`);
+        return null;
+      }
 
       const font = this.pdfContext.lookup(fontRef);
-      if (!font || !font.dict) return null;
+      if (!font || !font.dict) {
+        console.log(`  [CMap] Could not lookup font "${cleanFontName}"`);
+        return null;
+      }
 
       // Look for ToUnicode entry
       const toUnicodeRef = font.dict.get('ToUnicode');
-      if (!toUnicodeRef) return null;
+      if (!toUnicodeRef) {
+        console.log(`  [CMap] Font "${cleanFontName}" has no ToUnicode CMap`);
+        return null;
+      }
 
       const toUnicode = this.pdfContext.lookup(toUnicodeRef);
-      if (!toUnicode) return null;
+      if (!toUnicode) {
+        console.log(`  [CMap] Could not lookup ToUnicode stream for "${cleanFontName}"`);
+        return null;
+      }
 
       // Get the CMap stream content
       let cmapData = toUnicode.getContents();
@@ -820,10 +838,19 @@ class PDFContentParser {
 
       // Parse the CMap
       const cmapString = cmapData.toString('latin1');
-      return this.parseCMap(cmapString);
+      const mapping = this.parseCMap(cmapString);
+
+      if (mapping) {
+        const count = Object.keys(mapping).length;
+        console.log(`  [CMap] ✓ Loaded "${cleanFontName}": ${count} character mappings`);
+      } else {
+        console.log(`  [CMap] ✗ Failed to parse CMap for "${cleanFontName}"`);
+      }
+
+      return mapping;
 
     } catch (error) {
-      // CMap extraction failed, return null
+      console.log(`  [CMap] Error for ${fontName}: ${error.message}`);
       return null;
     }
   }
