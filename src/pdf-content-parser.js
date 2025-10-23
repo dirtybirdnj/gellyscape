@@ -4,6 +4,8 @@
  * Converts low-level PDF operators into structured path data
  */
 
+const { PDFName } = require('pdf-lib');
+
 class PDFContentParser {
   constructor(options = {}) {
     this.paths = [];
@@ -824,14 +826,15 @@ class PDFContentParser {
       // Remove leading slash from font name
       const cleanFontName = fontName.startsWith('/') ? fontName.substring(1) : fontName;
 
-      // Look up font in font dictionary
-      const fontRef = this.fontDict.get(cleanFontName);
+      // Look up font in font dictionary using PDFName
+      const fontKey = PDFName.of(cleanFontName);
+      const fontRef = this.fontDict.get(fontKey);
       if (!fontRef) {
         if (!this.loggedMissingFonts) {
           this.loggedMissingFonts = new Set();
         }
         if (!this.loggedMissingFonts.has(cleanFontName)) {
-          console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary`);
+          console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary (tried PDFName.of("${cleanFontName}"))`);
           this.loggedMissingFonts.add(cleanFontName);
         }
         return null;
