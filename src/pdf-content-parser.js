@@ -662,11 +662,6 @@ class PDFContentParser {
       const rawText = operands[0];
       const textString = this.decodeTextString(rawText);
 
-      // Debug: show first few text decodings
-      if (this.textObjects.length < 5) {
-        console.log(`  [Text Debug] Raw: "${rawText.substring(0, 50)}" -> Decoded: "${textString.substring(0, 50)}" (font: ${this.currentFont})`);
-      }
-
       // Extract position from text matrix (e, f components)
       const x = this.textMatrix[4];
       const y = this.textMatrix[5];
@@ -719,11 +714,6 @@ class PDFContentParser {
     if (isHexString) {
       // Hex string: <48656C6C6F> represents bytes
       const hexContent = pdfString.slice(1, -1).replace(/\s/g, '');
-
-      // Debug first few hex strings
-      if (this.textObjects.length < 5) {
-        console.log(`  [Text Debug] Hex string: ${pdfString} -> bytes: ${hexContent}`);
-      }
 
       // Convert hex pairs to bytes
       let bytes = '';
@@ -786,7 +776,6 @@ class PDFContentParser {
 
       // Convert text bytes to character codes and map to Unicode
       let result = '';
-      let debugInfo = [];
       for (let i = 0; i < text.length; i++) {
         const charCode = text.charCodeAt(i);
 
@@ -795,9 +784,6 @@ class PDFContentParser {
           const twoByteCode = (charCode << 8) | text.charCodeAt(i + 1);
           if (cmap[twoByteCode] !== undefined) {
             result += cmap[twoByteCode];
-            if (debugInfo.length < 3) {
-              debugInfo.push(`0x${twoByteCode.toString(16)} -> "${cmap[twoByteCode]}"`);
-            }
             i++; // Skip next byte
             continue;
           }
@@ -806,19 +792,10 @@ class PDFContentParser {
         // Try single-byte code
         if (cmap[charCode] !== undefined) {
           result += cmap[charCode];
-          if (debugInfo.length < 3) {
-            debugInfo.push(`0x${charCode.toString(16)} -> "${cmap[charCode]}"`);
-          }
         } else {
           // No mapping found, keep original character
           result += text[i];
         }
-      }
-
-      // Debug: show first successful decoding
-      if (debugInfo.length > 0 && !this.loggedSuccessfulDecode) {
-        console.log(`  [Text Debug] CMap decoding working! Examples: ${debugInfo.join(', ')}`);
-        this.loggedSuccessfulDecode = true;
       }
 
       return result || null;
@@ -865,76 +842,28 @@ class PDFContentParser {
         return null;
       }
 
-      // Inspect font structure in detail
+      // Inspect font structure in detail (only log first few unique fonts)
       if (!this.inspectedFonts) {
         this.inspectedFonts = new Set();
+        this.shouldLogFonts = true; // Log first few fonts
       }
 
-      if (!this.inspectedFonts.has(cleanFontName)) {
-        console.log(`\n  [Font Info] Inspecting font "${cleanFontName}":`);
+      if (!this.inspectedFonts.has(cleanFontName) && this.inspectedFonts.size < 3 && this.shouldLogFonts) {
+        console.log(`\n  [Font Info] "${cleanFontName}":`);
 
         // Get font properties
         const subtype = font.dict.get(PDFName.of('Subtype'));
         const baseFont = font.dict.get(PDFName.of('BaseFont'));
         const encoding = font.dict.get(PDFName.of('Encoding'));
         const toUnicode = font.dict.get(PDFName.of('ToUnicode'));
-        const descendantFonts = font.dict.get(PDFName.of('DescendantFonts'));
 
         console.log(`    Subtype: ${subtype ? subtype.toString() : 'none'}`);
         console.log(`    BaseFont: ${baseFont ? baseFont.toString() : 'none'}`);
-        console.log(`    ToUnicode: ${toUnicode ? 'present' : 'MISSING'}`);
         console.log(`    Encoding: ${encoding ? encoding.toString() : 'none'}`);
-
-        // If Type0 (composite font), inspect DescendantFonts
-        if (subtype && subtype.toString() === '/Type0' && descendantFonts) {
-          console.log(`    Type: Composite (Type0) font`);
-          try {
-            const descFontsArray = this.pdfContext.lookup(descendantFonts);
-            if (descFontsArray && descFontsArray.length > 0) {
-              const cidFont = this.pdfContext.lookup(descFontsArray[0]);
-              if (cidFont && cidFont.dict) {
-                const cidSubtype = cidFont.dict.get(PDFName.of('Subtype'));
-                const cidSystemInfo = cidFont.dict.get(PDFName.of('CIDSystemInfo'));
-                const cidToGIDMap = cidFont.dict.get(PDFName.of('CIDToGIDMap'));
-
-                console.log(`    CIDFont Subtype: ${cidSubtype ? cidSubtype.toString() : 'none'}`);
-                console.log(`    CIDToGIDMap: ${cidToGIDMap ? cidToGIDMap.toString() : 'none'}`);
-
-                if (cidSystemInfo) {
-                  const sysInfo = this.pdfContext.lookup(cidSystemInfo);
-                  if (sysInfo && sysInfo.dict) {
-                    const registry = sysInfo.dict.get(PDFName.of('Registry'));
-                    const ordering = sysInfo.dict.get(PDFName.of('Ordering'));
-                    console.log(`    Registry: ${registry ? registry.toString() : 'none'}`);
-                    console.log(`    Ordering: ${ordering ? ordering.toString() : 'none'}`);
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.log(`    Error inspecting DescendantFonts: ${e.message}`);
-          }
-        }
-
-        // If encoding is present, inspect it
-        if (encoding) {
-          try {
-            const encodingObj = this.pdfContext.lookup(encoding);
-            if (encodingObj) {
-              if (typeof encodingObj === 'object' && encodingObj.dict) {
-                const baseEncoding = encodingObj.dict.get(PDFName.of('BaseEncoding'));
-                const differences = encodingObj.dict.get(PDFName.of('Differences'));
-                console.log(`    Encoding BaseEncoding: ${baseEncoding ? baseEncoding.toString() : 'none'}`);
-                console.log(`    Encoding Differences: ${differences ? 'present' : 'none'}`);
-              }
-            }
-          } catch (e) {
-            console.log(`    Error inspecting Encoding: ${e.message}`);
-          }
-        }
-
-        this.inspectedFonts.add(cleanFontName);
+        console.log(`    ToUnicode: ${toUnicode ? 'yes' : 'no'}`);
       }
+
+      this.inspectedFonts.add(cleanFontName);
 
       // Look for ToUnicode entry
       const toUnicodeRef = font.dict.get(PDFName.of('ToUnicode'));
@@ -955,42 +884,32 @@ class PDFContentParser {
       // Decompress if needed - check for FlateDecode
       if (toUnicode.dict) {
         const filter = toUnicode.dict.get(PDFName.of('Filter'));
-        console.log(`  [CMap Debug] Filter: ${filter ? filter.toString() : 'none'}`);
 
         if (filter) {
           const filterStr = filter.toString();
           if (filterStr === '/FlateDecode' || filterStr === 'FlateDecode') {
-            console.log(`  [CMap Debug] Decompressing with FlateDecode...`);
             const zlib = require('zlib');
             try {
               cmapData = zlib.inflateSync(Buffer.from(cmapData));
-              console.log(`  [CMap Debug] Decompression successful, size: ${cmapData.length} bytes`);
             } catch (e) {
-              console.log(`  [CMap Debug] Decompression failed: ${e.message}`);
+              console.log(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
             }
           }
         }
       } else {
         // Try auto-detect compression (look for zlib header)
         if (cmapData[0] === 0x78 && (cmapData[1] === 0x9C || cmapData[1] === 0xDA)) {
-          console.log(`  [CMap Debug] Auto-detected zlib compression, decompressing...`);
           const zlib = require('zlib');
           try {
             cmapData = zlib.inflateSync(Buffer.from(cmapData));
-            console.log(`  [CMap Debug] Decompression successful, size: ${cmapData.length} bytes`);
           } catch (e) {
-            console.log(`  [CMap Debug] Decompression failed: ${e.message}`);
+            console.log(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
           }
         }
       }
 
       // Parse the CMap
       const cmapString = cmapData.toString('latin1');
-
-      // Debug: show first part of CMap
-      console.log(`  [CMap Debug] First 500 chars of "${cleanFontName}" ToUnicode:`);
-      console.log(`    ${cmapString.substring(0, 500).replace(/\n/g, '\\n ')}`);
-
       const mapping = this.parseCMap(cmapString);
 
       if (mapping) {
