@@ -107,18 +107,29 @@ async function testSVGConversion() {
     fontDict = resources.get(fontKey);
     if (fontDict) {
       console.log('Found Font dictionary for text decoding');
+      console.log(`  Font dict type: ${fontDict.constructor.name}`);
+
       // Debug: show what fonts are actually available
       try {
-        const fontEntries = Array.from(fontDict.entries());
-        console.log(`Available fonts in dictionary: ${fontEntries.length}`);
-        fontEntries.slice(0, 10).forEach(([name, ref]) => {
-          console.log(`  - ${name.toString()}`);
-        });
-        if (fontEntries.length > 10) {
-          console.log(`  ... and ${fontEntries.length - 10} more`);
+        // Check if it has entries method
+        if (typeof fontDict.entries === 'function') {
+          const fontEntries = Array.from(fontDict.entries());
+          console.log(`  Available fonts: ${fontEntries.length}`);
+          fontEntries.slice(0, 10).forEach(([name, ref]) => {
+            console.log(`    - ${name.toString()}`);
+          });
+          if (fontEntries.length > 10) {
+            console.log(`    ... and ${fontEntries.length - 10} more`);
+          }
+        } else if (typeof fontDict.get === 'function') {
+          console.log(`  Font dict has .get() method but not .entries()`);
+          console.log(`  Dict keys:`, fontDict.dict ? Array.from(fontDict.dict.keys()).map(k => k.toString()) : 'no dict property');
+        } else {
+          console.log(`  Font dict methods:`, Object.getOwnPropertyNames(Object.getPrototypeOf(fontDict)).filter(m => typeof fontDict[m] === 'function'));
         }
       } catch (e) {
-        console.log('Could not enumerate font entries:', e.message);
+        console.log(`  Error inspecting fonts: ${e.message}`);
+        console.log(`  Stack:`, e.stack);
       }
       console.log();
     } else {
