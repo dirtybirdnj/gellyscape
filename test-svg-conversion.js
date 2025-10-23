@@ -2,7 +2,8 @@
  * Test script for SVG Path Conversion
  * Tests the complete PDF → SVG path conversion pipeline
  *
- * Usage: node test-svg-conversion.js
+ * Usage: node test-svg-conversion.js [--include-marsh]
+ *        node test-svg-conversion.js [--exclude-marsh]  (default)
  */
 
 const fs = require('fs');
@@ -12,10 +13,19 @@ const { PDFDocument, PDFName } = require('pdf-lib');
 const PDFContentParser = require('./src/pdf-content-parser');
 const SVGPathConverter = require('./src/svg-path-converter');
 
+// Parse command line arguments
+const args = process.argv.slice(2);
+const includeMarsh = args.includes('--include-marsh');
+
+// Marsh symbol character (U+F0ED in Webdings/C2_1 font)
+const MARSH_SYMBOL = String.fromCharCode(0xF0ED);
+
 async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log('SVG PATH CONVERSION TEST');
   console.log('='.repeat(80));
+  console.log();
+  console.log(`Layer options: Marsh symbols ${includeMarsh ? 'INCLUDED' : 'EXCLUDED (default)'}`);
   console.log();
 
   // Setup output directory
@@ -442,12 +452,11 @@ async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log();
 
-  const svgContent = generateSampleSVG(svgPaths, allTextObjects, svgWidth, svgHeight, bounds, pdfHeight);
+  const svgContent = generateSampleSVG(svgPaths, allTextObjects, svgWidth, svgHeight, bounds, pdfHeight, { includeMarsh });
   const outputPath = path.join(outputDir, 'test-svg-output.svg');
   fs.writeFileSync(outputPath, svgContent);
 
   console.log(`SVG saved to: ${outputPath}`);
-  console.log(`Contains ALL ${svgPaths.length} paths and ${allTextObjects.length} text objects from the PDF`);
   console.log(`File size: ${(svgContent.length / 1024 / 1024).toFixed(2)} MB`);
   console.log();
 
@@ -527,7 +536,9 @@ async function testSVGConversion() {
 /**
  * Generate a complete SVG file with converted paths and text
  */
-function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeight) {
+function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeight, options = {}) {
+  const { includeMarsh = false } = options;
+
   const pathElements = svgPaths.map((svgPath, index) => {
     const converter = new SVGPathConverter();
     return converter.generatePathElement(svgPath, {
@@ -536,8 +547,26 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
     });
   });
 
-  // Transform text objects to SVG coordinates
-  const textElements = textObjects.map((textObj, index) => {
+  // Separate marsh symbols from other text
+  const marshTexts = [];
+  const regularTexts = [];
+
+  textObjects.forEach(textObj => {
+    const isMarsh = textObj.font === '/C2_1' && textObj.text === MARSH_SYMBOL;
+    if (isMarsh) {
+      marshTexts.push(textObj);
+    } else {
+      regularTexts.push(textObj);
+    }
+  });
+
+  console.log(`\nText categorization:`);
+  console.log(`  Regular text: ${regularTexts.length}`);
+  console.log(`  Marsh symbols: ${marshTexts.length}`);
+  console.log(`  Marsh layer: ${includeMarsh ? 'INCLUDED in output' : 'EXCLUDED from output'}`);
+
+  // Transform regular text objects to SVG coordinates
+  const regularTextElements = regularTexts.map((textObj, index) => {
     // Transform coordinates from PDF to SVG space
     // Apply CTM transformation
     const ctm = textObj.ctm;
@@ -566,6 +595,34 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
     return `<text id="text-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${textObj.fillColor}" class="pdf-text" data-font="${textObj.font}">${escapedText}</text>`;
   });
 
+  // Transform marsh text objects to SVG coordinates (only if includeMarsh is true)
+  const marshTextElements = includeMarsh ? marshTexts.map((textObj, index) => {
+    const ctm = textObj.ctm;
+    let x = textObj.x;
+    let y = textObj.y;
+
+    // Apply transformation matrix
+    if (ctm) {
+      const transformedX = ctm.a * x + ctm.c * y + ctm.e;
+      const transformedY = ctm.b * x + ctm.d * y + ctm.f;
+      x = transformedX;
+      y = transformedY;
+    }
+
+    // Flip Y coordinate
+    y = pdfHeight - y;
+
+    // Escape text for XML
+    const escapedText = (textObj.text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
+    return `<text id="marsh-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${textObj.fillColor}" class="pdf-text marsh-symbol" data-font="${textObj.font}">${escapedText}</text>`;
+  }) : [];
+
   // Use bounds to create optimal viewBox if provided
   let viewBox = `0 0 ${width} ${height}`;
   if (bounds) {
@@ -578,19 +635,29 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
     viewBox = `${vbX.toFixed(2)} ${vbY.toFixed(2)} ${vbWidth.toFixed(2)} ${vbHeight.toFixed(2)}`;
   }
 
+  // Build marsh layer group if included
+  const marshLayerGroup = includeMarsh ? `
+  <g id="marsh-layer" data-layer="marsh-symbols">
+${marshTextElements.map(el => '    ' + el).join('\n')}
+  </g>
+` : '  <!-- Marsh layer excluded (use --include-marsh to enable) -->\n';
+
+  const totalTextCount = includeMarsh ? regularTexts.length + marshTexts.length : regularTexts.length;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      width="${width}"
      height="${height}"
      viewBox="${viewBox}">
   <title>GeoPDF to SVG Conversion - Complete</title>
-  <desc>Complete conversion of all ${svgPaths.length} paths and ${textObjects.length} text objects from VT_Burlington_20240809_TM_geo.pdf</desc>
+  <desc>Conversion of ${svgPaths.length} paths and ${totalTextCount} text objects from VT_Burlington_20240809_TM_geo.pdf${includeMarsh ? ' (includes marsh layer)' : ' (marsh layer excluded)'}</desc>
 
   <style>
     .operation-stroke { }
     .operation-fill { }
     .operation-fill-stroke { }
     .pdf-text { font-family: Arial, sans-serif; }
+    .marsh-symbol { opacity: 0.8; }
   </style>
 
   <g id="map-paths">
@@ -598,9 +665,10 @@ ${pathElements.map(el => '    ' + el).join('\n')}
   </g>
 
   <g id="text-elements">
-${textElements.map(el => '    ' + el).join('\n')}
+${regularTextElements.map(el => '    ' + el).join('\n')}
   </g>
-</svg>`;
+
+${marshLayerGroup}</svg>`;
 }
 
 // Run the test
