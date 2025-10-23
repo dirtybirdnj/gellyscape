@@ -657,7 +657,13 @@ class PDFContentParser {
   opShowText(operands) {
     // Tj: (string) - show a text string
     if (operands.length >= 1 && this.inTextObject) {
-      const textString = this.decodeTextString(operands[0]);
+      const rawText = operands[0];
+      const textString = this.decodeTextString(rawText);
+
+      // Debug: show first few text decodings
+      if (this.textObjects.length < 5) {
+        console.log(`  [Text Debug] Raw: "${rawText.substring(0, 50)}" -> Decoded: "${textString.substring(0, 50)}" (font: ${this.currentFont})`);
+      }
 
       // Extract position from text matrix (e, f components)
       const x = this.textMatrix[4];
@@ -749,10 +755,17 @@ class PDFContentParser {
       }
 
       const cmap = this.fontCMaps[fontName];
-      if (!cmap) return null;
+      if (!cmap) {
+        if (!this.loggedNoCMap) {
+          console.log(`  [Text Debug] No CMap available for ${fontName} - using raw text`);
+          this.loggedNoCMap = true;
+        }
+        return null;
+      }
 
       // Convert text bytes to character codes and map to Unicode
       let result = '';
+      let debugInfo = [];
       for (let i = 0; i < text.length; i++) {
         const charCode = text.charCodeAt(i);
 
@@ -761,6 +774,9 @@ class PDFContentParser {
           const twoByteCode = (charCode << 8) | text.charCodeAt(i + 1);
           if (cmap[twoByteCode] !== undefined) {
             result += cmap[twoByteCode];
+            if (debugInfo.length < 3) {
+              debugInfo.push(`0x${twoByteCode.toString(16)} -> "${cmap[twoByteCode]}"`);
+            }
             i++; // Skip next byte
             continue;
           }
@@ -769,15 +785,25 @@ class PDFContentParser {
         // Try single-byte code
         if (cmap[charCode] !== undefined) {
           result += cmap[charCode];
+          if (debugInfo.length < 3) {
+            debugInfo.push(`0x${charCode.toString(16)} -> "${cmap[charCode]}"`);
+          }
         } else {
           // No mapping found, keep original character
           result += text[i];
         }
       }
 
+      // Debug: show first successful decoding
+      if (debugInfo.length > 0 && !this.loggedSuccessfulDecode) {
+        console.log(`  [Text Debug] CMap decoding working! Examples: ${debugInfo.join(', ')}`);
+        this.loggedSuccessfulDecode = true;
+      }
+
       return result || null;
     } catch (error) {
       // If CMap decoding fails, return null to fall back to original string
+      console.log(`  [Text Debug] CMap decode error: ${error.message}`);
       return null;
     }
   }
