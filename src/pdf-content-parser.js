@@ -5,7 +5,7 @@
  */
 
 class PDFContentParser {
-  constructor() {
+  constructor(options = {}) {
     this.paths = [];
     this.currentPath = null;
     this.textObjects = [];
@@ -19,6 +19,11 @@ class PDFContentParser {
     this.currentFontSize = 0;
     this.textMatrix = [1, 0, 0, 1, 0, 0]; // Tm
     this.textLineMatrix = [1, 0, 0, 1, 0, 0]; // Tlm
+
+    // Font resources for decoding text
+    this.pdfContext = options.pdfContext;
+    this.fontDict = options.fontDict;
+    this.fontCMaps = {}; // Cache for parsed ToUnicode CMaps
   }
 
   /**
@@ -705,7 +710,7 @@ class PDFContentParser {
       pdfString = pdfString.slice(1, -1);
     }
 
-    // Decode escape sequences
+    // Decode escape sequences first
     pdfString = pdfString
       .replace(/\\n/g, '\n')
       .replace(/\\r/g, '\r')
@@ -716,7 +721,179 @@ class PDFContentParser {
       .replace(/\\\)/g, ')')
       .replace(/\\\\/g, '\\');
 
+    // If we have font resources, try to decode using ToUnicode CMap
+    if (this.currentFont && this.fontDict && this.pdfContext) {
+      const decodedText = this.decodeWithCMap(pdfString, this.currentFont);
+      if (decodedText) {
+        return decodedText;
+      }
+    }
+
     return pdfString;
+  }
+
+  /**
+   * Decode text using font's ToUnicode CMap
+   */
+  decodeWithCMap(text, fontName) {
+    try {
+      // Get or create CMap for this font
+      if (!this.fontCMaps[fontName]) {
+        const cmap = this.extractToUnicodeCMap(fontName);
+        if (cmap) {
+          this.fontCMaps[fontName] = cmap;
+        } else {
+          this.fontCMaps[fontName] = null; // Mark as unavailable
+          return null;
+        }
+      }
+
+      const cmap = this.fontCMaps[fontName];
+      if (!cmap) return null;
+
+      // Convert text bytes to character codes and map to Unicode
+      let result = '';
+      for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+
+        // Try 2-byte codes first (common in CID fonts)
+        if (i + 1 < text.length) {
+          const twoByteCode = (charCode << 8) | text.charCodeAt(i + 1);
+          if (cmap[twoByteCode] !== undefined) {
+            result += cmap[twoByteCode];
+            i++; // Skip next byte
+            continue;
+          }
+        }
+
+        // Try single-byte code
+        if (cmap[charCode] !== undefined) {
+          result += cmap[charCode];
+        } else {
+          // No mapping found, keep original character
+          result += text[i];
+        }
+      }
+
+      return result || null;
+    } catch (error) {
+      // If CMap decoding fails, return null to fall back to original string
+      return null;
+    }
+  }
+
+  /**
+   * Extract and parse ToUnicode CMap from font
+   */
+  extractToUnicodeCMap(fontName) {
+    try {
+      if (!this.fontDict) return null;
+
+      // Remove leading slash from font name
+      const cleanFontName = fontName.startsWith('/') ? fontName.substring(1) : fontName;
+
+      // Look up font in font dictionary
+      const fontRef = this.fontDict.get(cleanFontName);
+      if (!fontRef) return null;
+
+      const font = this.pdfContext.lookup(fontRef);
+      if (!font || !font.dict) return null;
+
+      // Look for ToUnicode entry
+      const toUnicodeRef = font.dict.get('ToUnicode');
+      if (!toUnicodeRef) return null;
+
+      const toUnicode = this.pdfContext.lookup(toUnicodeRef);
+      if (!toUnicode) return null;
+
+      // Get the CMap stream content
+      let cmapData = toUnicode.getContents();
+
+      // Decompress if needed
+      if (toUnicode.dict) {
+        const filter = toUnicode.dict.get('Filter');
+        if (filter && filter.toString() === '/FlateDecode') {
+          const zlib = require('zlib');
+          cmapData = zlib.inflateSync(Buffer.from(cmapData));
+        }
+      }
+
+      // Parse the CMap
+      const cmapString = cmapData.toString('latin1');
+      return this.parseCMap(cmapString);
+
+    } catch (error) {
+      // CMap extraction failed, return null
+      return null;
+    }
+  }
+
+  /**
+   * Parse ToUnicode CMap to build character code -> Unicode mapping
+   */
+  parseCMap(cmapString) {
+    const mapping = {};
+
+    try {
+      // Parse beginbfchar sections (single character mappings)
+      const bfcharRegex = /beginbfchar\s+([\s\S]*?)\s+endbfchar/g;
+      let match;
+
+      while ((match = bfcharRegex.exec(cmapString)) !== null) {
+        const entries = match[1].trim().split(/\s+/);
+
+        for (let i = 0; i < entries.length; i += 2) {
+          if (i + 1 >= entries.length) break;
+
+          const srcCode = this.parseHexString(entries[i]);
+          const dstCode = this.parseHexString(entries[i + 1]);
+
+          if (srcCode !== null && dstCode !== null) {
+            mapping[srcCode] = String.fromCharCode(dstCode);
+          }
+        }
+      }
+
+      // Parse beginbfrange sections (character ranges)
+      const bfrangeRegex = /beginbfrange\s+([\s\S]*?)\s+endbfrange/g;
+
+      while ((match = bfrangeRegex.exec(cmapString)) !== null) {
+        const entries = match[1].trim().split(/\s+/);
+
+        for (let i = 0; i < entries.length; i += 3) {
+          if (i + 2 >= entries.length) break;
+
+          const srcStart = this.parseHexString(entries[i]);
+          const srcEnd = this.parseHexString(entries[i + 1]);
+          const dst = this.parseHexString(entries[i + 2]);
+
+          if (srcStart !== null && srcEnd !== null && dst !== null) {
+            for (let code = srcStart; code <= srcEnd; code++) {
+              mapping[code] = String.fromCharCode(dst + (code - srcStart));
+            }
+          }
+        }
+      }
+
+      return Object.keys(mapping).length > 0 ? mapping : null;
+
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Parse hex string from CMap (e.g., "<0041>" -> 65)
+   */
+  parseHexString(hexStr) {
+    if (!hexStr) return null;
+
+    // Remove angle brackets
+    const hex = hexStr.replace(/[<>]/g, '');
+    if (!hex) return null;
+
+    const value = parseInt(hex, 16);
+    return isNaN(value) ? null : value;
   }
 }
 

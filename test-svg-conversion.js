@@ -97,6 +97,19 @@ async function testSVGConversion() {
     console.log('Found 1 stream reference');
   }
 
+  // Extract font resources for text decoding
+  const resourcesKey = PDFName.of('Resources');
+  const resources = pageDict.get(resourcesKey);
+  let fontDict = null;
+
+  if (resources) {
+    const fontKey = PDFName.of('Font');
+    fontDict = resources.get(fontKey);
+    if (fontDict) {
+      console.log('Found Font dictionary for text decoding\n');
+    }
+  }
+
   // Parse paths
   let allPaths = [];
   let allTextObjects = [];
@@ -174,7 +187,10 @@ async function testSVGConversion() {
       }
 
       console.log(`    Parsing ${contentData.length} bytes...`);
-      const parser = new PDFContentParser();
+      const parser = new PDFContentParser({
+        pdfContext: pdfDoc.context,
+        fontDict: fontDict
+      });
       const { paths, textObjects } = parser.parseContentStream(contentData);
       console.log(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
       allPaths = allPaths.concat(paths);
@@ -250,7 +266,11 @@ async function testSVGConversion() {
               }
 
               // Parse the XObject content stream
-              const xobjParser = new PDFContentParser();
+              // XObjects may have their own font resources, but we'll use page fonts for now
+              const xobjParser = new PDFContentParser({
+                pdfContext: pdfDoc.context,
+                fontDict: fontDict
+              });
               const { paths: xobjPaths, textObjects: xobjText } = xobjParser.parseContentStream(xobjData);
 
               console.log(`  Found ${xobjPaths.length} paths and ${xobjText.length} text objects`);
