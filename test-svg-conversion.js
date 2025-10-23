@@ -211,9 +211,7 @@ async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log();
 
-  const resourcesKey = PDFName.of('Resources');
-  const resources = pageDict.get(resourcesKey);
-
+  // Reuse resources variable from above (already extracted for fonts)
   if (resources) {
     console.log('Found Resources dictionary');
     const xobjectKey = PDFName.of('XObject');
