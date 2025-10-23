@@ -4,19 +4,34 @@
  * Converts low-level PDF operators into structured path data
  */
 
+const { PDFName } = require('pdf-lib');
+
 class PDFContentParser {
-  constructor() {
+  constructor(options = {}) {
     this.paths = [];
     this.currentPath = null;
+    this.textObjects = [];
     this.graphicsState = new GraphicsState();
     this.stateStack = [];
     this.debugCount = 0; // For debugging
+
+    // Text state
+    this.inTextObject = false;
+    this.currentFont = null;
+    this.currentFontSize = 0;
+    this.textMatrix = [1, 0, 0, 1, 0, 0]; // Tm
+    this.textLineMatrix = [1, 0, 0, 1, 0, 0]; // Tlm
+
+    // Font resources for decoding text
+    this.pdfContext = options.pdfContext;
+    this.fontDict = options.fontDict;
+    this.fontCMaps = {}; // Cache for parsed ToUnicode CMaps
   }
 
   /**
-   * Parse a PDF content stream and extract all vector paths
+   * Parse a PDF content stream and extract all vector paths and text
    * @param {Buffer|Uint8Array} stream - Raw content stream data
-   * @returns {Array} Array of path objects with geometry and style
+   * @returns {Object} Object with paths and textObjects arrays
    */
   parseContentStream(stream) {
     try {
@@ -29,10 +44,13 @@ class PDFContentParser {
       // Process tokens and build paths
       this.processTokens(tokens);
 
-      return this.paths;
+      return {
+        paths: this.paths,
+        textObjects: this.textObjects
+      };
     } catch (error) {
       console.error('Error parsing content stream:', error);
-      return [];
+      return { paths: [], textObjects: [] };
     }
   }
 
@@ -45,8 +63,8 @@ class PDFContentParser {
     const tokens = [];
 
     // Regular expression to match PDF tokens
-    // Matches: numbers, operators, names, strings, arrays
-    const tokenRegex = /([+-]?\d+\.?\d*)|(\[|\])|(\((?:[^()\\]|\\.)*\))|\/([^\s\[\]()<>\/{}%]+)|([a-zA-Z'"][a-zA-Z0-9'"]*)|\s+/g;
+    // Matches: hex strings, numbers, operators, names, literal strings, arrays
+    const tokenRegex = /(<[0-9A-Fa-f\s]*>)|([+-]?\d+\.?\d*)|(\[|\])|(\((?:[^()\\]|\\.)*\))|\/([^\s\[\]()<>\/{}%]+)|([a-zA-Z'"][a-zA-Z0-9'"]*)|\s+/g;
 
     let match;
     while ((match = tokenRegex.exec(content)) !== null) {
@@ -193,13 +211,48 @@ class PDFContentParser {
         // These require color space context, skip for now
         break;
 
-      // Text operators (we'll ignore these for vector extraction)
+      // Text operators
       case 'BT': // begin text
+        this.opBeginText();
+        break;
       case 'ET': // end text
-      case 'Td': case 'TD': case 'Tm': case 'T*': // text positioning
-      case 'Tj': case 'TJ': case "'": case '"': // text showing
-      case 'Tc': case 'Tw': case 'Tz': case 'TL': case 'Tf': case 'Tr': case 'Ts': // text state
-        // Ignore text operators
+        this.opEndText();
+        break;
+      case 'Tf': // set font and size
+        this.opSetFont(operands);
+        break;
+      case 'Tm': // set text matrix
+        this.opSetTextMatrix(operands);
+        break;
+      case 'Td': // move text position
+        this.opMoveText(operands);
+        break;
+      case 'TD': // move text position and set leading
+        this.opMoveTextSetLeading(operands);
+        break;
+      case 'T*': // move to start of next line
+        this.opNextLine();
+        break;
+      case 'Tj': // show text
+        this.opShowText(operands);
+        break;
+      case 'TJ': // show text with positioning
+        this.opShowTextPositioned(operands);
+        break;
+      case "'": // move to next line and show text
+        this.opNextLine();
+        this.opShowText(operands);
+        break;
+      case '"': // set word/char spacing, move to next line, show text
+        // operands: [aw, ac, string]
+        if (operands.length >= 3) {
+          this.opNextLine();
+          this.opShowText([operands[2]]);
+        }
+        break;
+      // Text state operators (spacing, scaling, etc.) - track but don't need to process
+      case 'Tc': case 'Tw': case 'Tz': case 'TL': case 'Tr': case 'Ts':
+        // Character spacing, word spacing, horizontal scaling, leading, render mode, rise
         break;
 
       default:
@@ -544,6 +597,402 @@ class PDFContentParser {
       e: m1.e * m2.a + m1.f * m2.c + m2.e,
       f: m1.e * m2.b + m1.f * m2.d + m2.f
     };
+  }
+
+  // ============================================================================
+  // Text Operators
+  // ============================================================================
+
+  opBeginText() {
+    this.inTextObject = true;
+    // Reset text matrices to identity
+    this.textMatrix = [1, 0, 0, 1, 0, 0];
+    this.textLineMatrix = [1, 0, 0, 1, 0, 0];
+  }
+
+  opEndText() {
+    this.inTextObject = false;
+  }
+
+  opSetFont(operands) {
+    // Tf: font name, size
+    if (operands.length >= 2) {
+      this.currentFont = operands[0]; // Font resource name (e.g., /F1)
+      this.currentFontSize = parseFloat(operands[1]);
+    }
+  }
+
+  opSetTextMatrix(operands) {
+    // Tm: a b c d e f (6 numbers defining transformation matrix)
+    if (operands.length >= 6) {
+      this.textMatrix = operands.map(parseFloat);
+      // Text line matrix is also set to the same value
+      this.textLineMatrix = [...this.textMatrix];
+    }
+  }
+
+  opMoveText(operands) {
+    // Td: tx ty (translate text position)
+    if (operands.length >= 2) {
+      const tx = parseFloat(operands[0]);
+      const ty = parseFloat(operands[1]);
+      // Update text line matrix: Tlm = Tlm * [1 0 0 1 tx ty]
+      this.textLineMatrix[4] += tx;
+      this.textLineMatrix[5] += ty;
+      // Text matrix follows
+      this.textMatrix = [...this.textLineMatrix];
+    }
+  }
+
+  opMoveTextSetLeading(operands) {
+    // TD: tx ty (same as Td but also sets leading)
+    this.opMoveText(operands);
+  }
+
+  opNextLine() {
+    // T*: Move to start of next line (uses text leading)
+    // For simplicity, just move down
+    this.textLineMatrix[5] -= this.currentFontSize * 1.2; // Approximate line spacing
+    this.textMatrix = [...this.textLineMatrix];
+  }
+
+  opShowText(operands) {
+    // Tj: (string) - show a text string
+    if (operands.length >= 1 && this.inTextObject) {
+      const rawText = operands[0];
+      const textString = this.decodeTextString(rawText);
+
+      // Extract position from text matrix (e, f components)
+      const x = this.textMatrix[4];
+      const y = this.textMatrix[5];
+
+      this.textObjects.push({
+        text: textString,
+        x: x,
+        y: y,
+        font: this.currentFont,
+        fontSize: this.currentFontSize,
+        fillColor: this.graphicsState.fillColor,
+        ctm: { ...this.graphicsState.ctm }
+      });
+    }
+  }
+
+  opShowTextPositioned(operands) {
+    // TJ: [(string) offset (string) offset ...] - show text with positioning
+    if (operands.length >= 1 && this.inTextObject) {
+      const array = operands[0];
+
+      // Parse array - could be a string like "[(text)-123(more)]"
+      if (typeof array === 'string') {
+        // Extract strings from array notation
+        const matches = array.matchAll(/\(([^)]*)\)/g);
+        for (const match of matches) {
+          const textString = this.decodeTextString(`(${match[1]})`);
+
+          const x = this.textMatrix[4];
+          const y = this.textMatrix[5];
+
+          this.textObjects.push({
+            text: textString,
+            x: x,
+            y: y,
+            font: this.currentFont,
+            fontSize: this.currentFontSize,
+            fillColor: this.graphicsState.fillColor,
+            ctm: { ...this.graphicsState.ctm }
+          });
+        }
+      }
+    }
+  }
+
+  decodeTextString(pdfString) {
+    // Check if this is a hex string (<...>) vs literal string (...)
+    const isHexString = pdfString.startsWith('<') && pdfString.endsWith('>');
+
+    if (isHexString) {
+      // Hex string: <48656C6C6F> represents bytes
+      const hexContent = pdfString.slice(1, -1).replace(/\s/g, '');
+
+      // Convert hex pairs to bytes
+      let bytes = '';
+      for (let i = 0; i < hexContent.length; i += 2) {
+        const hexPair = hexContent.substr(i, 2);
+        bytes += String.fromCharCode(parseInt(hexPair, 16));
+      }
+      pdfString = bytes;
+    } else if (pdfString.startsWith('(') && pdfString.endsWith(')')) {
+      // Literal string: (Hello)
+      pdfString = pdfString.slice(1, -1);
+
+      // Decode escape sequences
+      pdfString = pdfString
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\b/g, '\b')
+        .replace(/\\f/g, '\f')
+        .replace(/\\\(/g, '(')
+        .replace(/\\\)/g, ')')
+        .replace(/\\\\/g, '\\');
+    }
+
+    // If we have font resources, try to decode using ToUnicode CMap
+    if (this.currentFont && this.fontDict && this.pdfContext) {
+      const decodedText = this.decodeWithCMap(pdfString, this.currentFont);
+      if (decodedText) {
+        return decodedText;
+      }
+    }
+
+    return pdfString;
+  }
+
+  /**
+   * Decode text using font's ToUnicode CMap
+   */
+  decodeWithCMap(text, fontName) {
+    try {
+      // Get or create CMap for this font
+      if (!this.fontCMaps[fontName]) {
+        const cmap = this.extractToUnicodeCMap(fontName);
+        if (cmap) {
+          this.fontCMaps[fontName] = cmap;
+        } else {
+          this.fontCMaps[fontName] = null; // Mark as unavailable
+          return null;
+        }
+      }
+
+      const cmap = this.fontCMaps[fontName];
+      if (!cmap) {
+        if (!this.loggedNoCMap) {
+          console.log(`  [Text Debug] No CMap available for ${fontName} - using raw text`);
+          this.loggedNoCMap = true;
+        }
+        return null;
+      }
+
+      // Convert text bytes to character codes and map to Unicode
+      let result = '';
+      for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+
+        // Try 2-byte codes first (common in CID fonts)
+        if (i + 1 < text.length) {
+          const twoByteCode = (charCode << 8) | text.charCodeAt(i + 1);
+          if (cmap[twoByteCode] !== undefined) {
+            result += cmap[twoByteCode];
+            i++; // Skip next byte
+            continue;
+          }
+        }
+
+        // Try single-byte code
+        if (cmap[charCode] !== undefined) {
+          result += cmap[charCode];
+        } else {
+          // No mapping found, keep original character
+          result += text[i];
+        }
+      }
+
+      return result || null;
+    } catch (error) {
+      // If CMap decoding fails, return null to fall back to original string
+      console.log(`  [Text Debug] CMap decode error: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Extract and parse ToUnicode CMap from font
+   */
+  extractToUnicodeCMap(fontName) {
+    try {
+      if (!this.fontDict) {
+        if (!this.loggedCMapWarning) {
+          console.log(`  [CMap] No fontDict available - text won't be decoded`);
+          this.loggedCMapWarning = true;
+        }
+        return null;
+      }
+
+      // Remove leading slash from font name
+      const cleanFontName = fontName.startsWith('/') ? fontName.substring(1) : fontName;
+
+      // Look up font in font dictionary using PDFName
+      const fontKey = PDFName.of(cleanFontName);
+      const fontRef = this.fontDict.get(fontKey);
+      if (!fontRef) {
+        if (!this.loggedMissingFonts) {
+          this.loggedMissingFonts = new Set();
+        }
+        if (!this.loggedMissingFonts.has(cleanFontName)) {
+          console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary (tried PDFName.of("${cleanFontName}"))`);
+          this.loggedMissingFonts.add(cleanFontName);
+        }
+        return null;
+      }
+
+      const font = this.pdfContext.lookup(fontRef);
+      if (!font || !font.dict) {
+        console.log(`  [CMap] Could not lookup font "${cleanFontName}"`);
+        return null;
+      }
+
+      // Inspect font structure in detail (only log first few unique fonts)
+      if (!this.inspectedFonts) {
+        this.inspectedFonts = new Set();
+        this.shouldLogFonts = true; // Log first few fonts
+      }
+
+      if (!this.inspectedFonts.has(cleanFontName) && this.inspectedFonts.size < 3 && this.shouldLogFonts) {
+        console.log(`\n  [Font Info] "${cleanFontName}":`);
+
+        // Get font properties
+        const subtype = font.dict.get(PDFName.of('Subtype'));
+        const baseFont = font.dict.get(PDFName.of('BaseFont'));
+        const encoding = font.dict.get(PDFName.of('Encoding'));
+        const toUnicode = font.dict.get(PDFName.of('ToUnicode'));
+
+        console.log(`    Subtype: ${subtype ? subtype.toString() : 'none'}`);
+        console.log(`    BaseFont: ${baseFont ? baseFont.toString() : 'none'}`);
+        console.log(`    Encoding: ${encoding ? encoding.toString() : 'none'}`);
+        console.log(`    ToUnicode: ${toUnicode ? 'yes' : 'no'}`);
+      }
+
+      this.inspectedFonts.add(cleanFontName);
+
+      // Look for ToUnicode entry
+      const toUnicodeRef = font.dict.get(PDFName.of('ToUnicode'));
+      if (!toUnicodeRef) {
+        // Font has no ToUnicode - we've already inspected it above
+        return null;
+      }
+
+      const toUnicode = this.pdfContext.lookup(toUnicodeRef);
+      if (!toUnicode) {
+        console.log(`  [CMap] Could not lookup ToUnicode stream for "${cleanFontName}"`);
+        return null;
+      }
+
+      // Get the CMap stream content
+      let cmapData = toUnicode.getContents();
+
+      // Decompress if needed - check for FlateDecode
+      if (toUnicode.dict) {
+        const filter = toUnicode.dict.get(PDFName.of('Filter'));
+
+        if (filter) {
+          const filterStr = filter.toString();
+          if (filterStr === '/FlateDecode' || filterStr === 'FlateDecode') {
+            const zlib = require('zlib');
+            try {
+              cmapData = zlib.inflateSync(Buffer.from(cmapData));
+            } catch (e) {
+              console.log(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
+            }
+          }
+        }
+      } else {
+        // Try auto-detect compression (look for zlib header)
+        if (cmapData[0] === 0x78 && (cmapData[1] === 0x9C || cmapData[1] === 0xDA)) {
+          const zlib = require('zlib');
+          try {
+            cmapData = zlib.inflateSync(Buffer.from(cmapData));
+          } catch (e) {
+            console.log(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
+          }
+        }
+      }
+
+      // Parse the CMap
+      const cmapString = cmapData.toString('latin1');
+      const mapping = this.parseCMap(cmapString);
+
+      if (mapping) {
+        const count = Object.keys(mapping).length;
+        console.log(`  [CMap] ✓ Loaded "${cleanFontName}": ${count} character mappings`);
+      } else {
+        console.log(`  [CMap] ✗ Failed to parse CMap for "${cleanFontName}"`);
+      }
+
+      return mapping;
+
+    } catch (error) {
+      console.log(`  [CMap] Error for ${fontName}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Parse ToUnicode CMap to build character code -> Unicode mapping
+   */
+  parseCMap(cmapString) {
+    const mapping = {};
+
+    try {
+      // Parse beginbfchar sections (single character mappings)
+      const bfcharRegex = /beginbfchar\s+([\s\S]*?)\s+endbfchar/g;
+      let match;
+
+      while ((match = bfcharRegex.exec(cmapString)) !== null) {
+        const entries = match[1].trim().split(/\s+/);
+
+        for (let i = 0; i < entries.length; i += 2) {
+          if (i + 1 >= entries.length) break;
+
+          const srcCode = this.parseHexString(entries[i]);
+          const dstCode = this.parseHexString(entries[i + 1]);
+
+          if (srcCode !== null && dstCode !== null) {
+            mapping[srcCode] = String.fromCharCode(dstCode);
+          }
+        }
+      }
+
+      // Parse beginbfrange sections (character ranges)
+      const bfrangeRegex = /beginbfrange\s+([\s\S]*?)\s+endbfrange/g;
+
+      while ((match = bfrangeRegex.exec(cmapString)) !== null) {
+        const entries = match[1].trim().split(/\s+/);
+
+        for (let i = 0; i < entries.length; i += 3) {
+          if (i + 2 >= entries.length) break;
+
+          const srcStart = this.parseHexString(entries[i]);
+          const srcEnd = this.parseHexString(entries[i + 1]);
+          const dst = this.parseHexString(entries[i + 2]);
+
+          if (srcStart !== null && srcEnd !== null && dst !== null) {
+            for (let code = srcStart; code <= srcEnd; code++) {
+              mapping[code] = String.fromCharCode(dst + (code - srcStart));
+            }
+          }
+        }
+      }
+
+      return Object.keys(mapping).length > 0 ? mapping : null;
+
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Parse hex string from CMap (e.g., "<0041>" -> 65)
+   */
+  parseHexString(hexStr) {
+    if (!hexStr) return null;
+
+    // Remove angle brackets
+    const hex = hexStr.replace(/[<>]/g, '');
+    if (!hex) return null;
+
+    const value = parseInt(hex, 16);
+    return isNaN(value) ? null : value;
   }
 }
 
