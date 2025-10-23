@@ -640,7 +640,7 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
   <g id="marsh-layer" data-layer="marsh-symbols">
 ${marshTextElements.map(el => '    ' + el).join('\n')}
   </g>
-` : '  <!-- Marsh layer excluded (use --include-marsh to enable) -->\n';
+` : '  <!-- Marsh layer excluded (use include-marsh flag to enable) -->\n';
 
   const totalTextCount = includeMarsh ? regularTexts.length + marshTexts.length : regularTexts.length;
 
@@ -656,7 +656,13 @@ ${marshTextElements.map(el => '    ' + el).join('\n')}
     .operation-stroke { }
     .operation-fill { }
     .operation-fill-stroke { }
-    .pdf-text { font-family: Arial, sans-serif; }
+    .pdf-text {
+      font-family: Arial, sans-serif;
+      /* Add text stroke for better visibility */
+      stroke: #000000;
+      stroke-width: 0.3;
+      paint-order: stroke fill;
+    }
     .marsh-symbol { opacity: 0.8; }
   </style>
 
