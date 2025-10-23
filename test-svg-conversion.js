@@ -145,132 +145,79 @@ async function testSVGConversion() {
   for (let i = 0; i < streamRefs.length; i++) {
     try {
       const streamRef = streamRefs[i];
-      console.log(`\n  Stream ${i + 1}/${streamRefs.length}:`);
-      console.log(`    Reference type: ${streamRef.constructor.name}`);
-
       const stream = pdfDoc.context.lookup(streamRef);
 
       if (!stream) {
-        console.log(`    Error: Could not lookup stream reference`);
         continue;
       }
-
-      console.log(`    Stream type: ${stream.constructor.name}`);
 
       // Get DECODED stream content (not raw compressed data)
       let contentData = null;
 
       try {
-        // Debug: Check what methods are available (only for first stream)
-        if (i === 0) {
-          console.log(`    Available methods:`, Object.getOwnPropertyNames(Object.getPrototypeOf(stream)).filter(m => typeof stream[m] === 'function'));
-          console.log(`    Stream dict keys:`, stream.dict ? Array.from(stream.dict.keys()).map(k => k.toString()) : 'no dict');
-        }
-
-        // Get filter type to determine decompression method
         const { dict } = stream;
         const filterKey = PDFName.of('Filter');
         const filter = dict ? dict.get(filterKey) : null;
-
-        if (i === 0 && filter) {
-          console.log(`    Stream Filter:`, filter.toString());
-        }
-
-        // Get raw compressed content
         const rawContent = stream.getContents();
 
-        // Decompress based on filter type
         if (filter && filter.toString() === '/FlateDecode') {
-          // Use Node's zlib to decompress FlateDecode streams
           try {
             contentData = zlib.inflateSync(Buffer.from(rawContent));
-            console.log(`    Decompressed FlateDecode stream (${rawContent.length} → ${contentData.length} bytes)`);
-
-            if (i === 0) {
-              // Verify decompression worked
-              const preview = contentData.toString('latin1').substring(0, 200);
-              console.log(`    First 200 chars:`, preview);
-              console.log(`    Contains PDF operators:`, /\s[a-z]{1,2}\s/.test(preview));
-            }
           } catch (zlibError) {
-            console.log(`    Zlib decompression failed: ${zlibError.message}`);
-            console.log(`    Trying raw content...`);
             contentData = rawContent;
           }
         } else {
-          // No filter or unknown filter - use raw content
           contentData = rawContent;
-          console.log(`    Using raw content (${contentData.length} bytes, filter: ${filter ? filter.toString() : 'none'})`);
         }
       } catch (decodeError) {
-        console.log(`    Decode error: ${decodeError.message}`);
-        console.log(`    Trying raw contents as fallback...`);
         if (stream.contents) {
           contentData = stream.contents;
         }
       }
 
       if (!contentData) {
-        console.log(`    Error: No content data available`);
         continue;
       }
 
-      console.log(`    Parsing ${contentData.length} bytes...`);
       const parser = new PDFContentParser({
         pdfContext: pdfDoc.context,
         fontDict: fontDict
       });
-      const { paths, textObjects } = parser.parseContentStream(contentData);
-      console.log(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
+      const { paths, textObjects} = parser.parseContentStream(contentData);
       allPaths = allPaths.concat(paths);
       allTextObjects = allTextObjects.concat(textObjects);
     } catch (streamError) {
-      console.error(`    Error: ${streamError.message}`);
-      if (streamError.stack) {
-        console.error(streamError.stack);
-      }
+      // Silent
     }
   }
 
   console.log(`Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects from first page\n`);
 
   // Also check for XObjects (Form XObjects that might contain text)
-  console.log('='.repeat(80));
-  console.log('CHECKING FOR XOBJECTS (Form XObjects, Images, etc.)');
-  console.log('='.repeat(80));
-  console.log();
+  console.log('\nChecking for XObjects...');
 
   // Reuse resources variable from above (already extracted for fonts)
   if (resources) {
-    console.log('Found Resources dictionary');
     const xobjectKey = PDFName.of('XObject');
     const xobjects = resources.get(xobjectKey);
 
     if (xobjects) {
-      console.log('Found XObject dictionary');
       const xobjectEntries = Array.from(xobjects.entries());
-      console.log(`Found ${xobjectEntries.length} XObject(s)\n`);
+      let imageCount = 0;
+      let formCount = 0;
 
       for (const [name, xobjRef] of xobjectEntries) {
-        const xobjName = name.toString();
-        console.log(`XObject: ${xobjName}`);
-
         try {
           const xobj = pdfDoc.context.lookup(xobjRef);
-          if (!xobj || !xobj.dict) {
-            console.log('  Could not lookup XObject\n');
-            continue;
-          }
+          if (!xobj || !xobj.dict) continue;
 
           // Check subtype
           const subtypeKey = PDFName.of('Subtype');
           const subtype = xobj.dict.get(subtypeKey);
-          console.log(`  Subtype: ${subtype ? subtype.toString() : 'unknown'}`);
 
           // We're interested in Form XObjects (not Image XObjects)
           if (subtype && subtype.toString() === '/Form') {
-            console.log('  This is a Form XObject - parsing content...');
-
+            formCount++;
             try {
               // Check if XObject has its own Resources (and fonts)
               const xobjResourcesKey = PDFName.of('Resources');
@@ -281,7 +228,6 @@ async function testSVGConversion() {
                 const xobjFontKey = PDFName.of('Font');
                 const xobjFonts = xobjResources.get(xobjFontKey);
                 if (xobjFonts) {
-                  console.log('  XObject has its own Font dictionary');
                   xobjFontDict = xobjFonts;
                 }
               }
@@ -297,9 +243,7 @@ async function testSVGConversion() {
               if (filter && filter.toString() === '/FlateDecode') {
                 try {
                   xobjData = zlib.inflateSync(Buffer.from(xobjContent));
-                  console.log(`  Decompressed: ${xobjContent.length} → ${xobjData.length} bytes`);
                 } catch (zlibError) {
-                  console.log(`  Decompression failed: ${zlibError.message}`);
                   xobjData = xobjContent;
                 }
               } else {
@@ -313,37 +257,29 @@ async function testSVGConversion() {
               });
               const { paths: xobjPaths, textObjects: xobjText } = xobjParser.parseContentStream(xobjData);
 
-              console.log(`  Found ${xobjPaths.length} paths and ${xobjText.length} text objects`);
-
-              if (xobjText.length > 0) {
-                console.log('  Sample text from this XObject:');
-                xobjText.slice(0, 3).forEach((t, i) => {
-                  console.log(`    ${i + 1}. "${t.text}"`);
-                });
-              }
-
               // Merge into main arrays
               allPaths = allPaths.concat(xobjPaths);
               allTextObjects = allTextObjects.concat(xobjText);
 
             } catch (xobjParseError) {
-              console.log(`  Error parsing XObject: ${xobjParseError.message}`);
+              // Silent
             }
-          } else if (subtype) {
-            console.log(`  Skipping (type: ${subtype.toString()})`);
+          } else if (subtype && subtype.toString() === '/Image') {
+            imageCount++;
           }
 
         } catch (xobjError) {
-          console.log(`  Error processing XObject: ${xobjError.message}`);
+          // Silent
         }
-
-        console.log();
       }
+
+      console.log(`  Found ${imageCount} Image XObjects (skipped)`);
+      console.log(`  Found ${formCount} Form XObjects (processed)`);
     } else {
-      console.log('No XObject dictionary found in Resources');
+      console.log('  No XObject dictionary');
     }
   } else {
-    console.log('No Resources dictionary found on page');
+    console.log('  No Resources');
   }
 
   console.log();

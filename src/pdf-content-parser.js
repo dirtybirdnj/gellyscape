@@ -827,7 +827,13 @@ class PDFContentParser {
       // Look up font in font dictionary
       const fontRef = this.fontDict.get(cleanFontName);
       if (!fontRef) {
-        console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary`);
+        if (!this.loggedMissingFonts) {
+          this.loggedMissingFonts = new Set();
+        }
+        if (!this.loggedMissingFonts.has(cleanFontName)) {
+          console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary`);
+          this.loggedMissingFonts.add(cleanFontName);
+        }
         return null;
       }
 
