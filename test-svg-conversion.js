@@ -686,7 +686,10 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
 
     // Force black text for readability (override PDF white/light colors)
     // Keep original color as data attribute for reference
-    return `<text id="text-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="#000000" class="pdf-text" data-font="${textObj.font}" data-original-color="${textObj.fillColor}">${escapedText}</text>`;
+    // Scale up font size (PDF units are tiny, multiply by 12 for visibility)
+    const fontSize = Math.max(textObj.fontSize * 12, 12);
+
+    return `<text id="text-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${fontSize}" fill="#000000" class="pdf-text" data-font="${textObj.font}" data-original-color="${textObj.fillColor}">${escapedText}</text>`;
   });
 
   // Transform marsh text objects to SVG coordinates (only if includeMarsh is true)
@@ -714,7 +717,10 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
 
-    return `<text id="marsh-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="#73b2ff" class="pdf-text marsh-symbol" data-font="${textObj.font}" data-original-color="${textObj.fillColor}">${escapedText}</text>`;
+    // Scale up font size for marsh symbols
+    const fontSize = Math.max(textObj.fontSize * 12, 12);
+
+    return `<text id="marsh-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${fontSize}" fill="#73b2ff" class="pdf-text marsh-symbol" data-font="${textObj.font}" data-original-color="${textObj.fillColor}">${escapedText}</text>`;
   }) : [];
 
   // Transform POI marker objects to SVG coordinates with original colors preserved
@@ -742,10 +748,18 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
 
+    // Escape marker type for attribute value
+    const escapedMarkerType = (textObj.text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;');
+
     // Keep original color for POI markers (red, blue, black)
     const fill = textObj.fillColor;
 
-    return `<text id="poi-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${fill}" class="pdf-text poi-marker" data-font="${textObj.font}" data-marker-type="${textObj.text}">${escapedText}</text>`;
+    // Scale up font size for POI markers
+    const fontSize = Math.max(textObj.fontSize * 12, 12);
+
+    return `<text id="poi-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${fontSize}" fill="${fill}" class="pdf-text poi-marker" data-font="${textObj.font}" data-marker-type="${escapedMarkerType}">${escapedText}</text>`;
   });
 
   // Use bounds to create optimal viewBox if provided
@@ -790,16 +804,13 @@ ${poiMarkerElements.map(el => '    ' + el).join('\n')}
     .operation-fill-stroke { }
     .pdf-text {
       font-family: Arial, sans-serif;
+      /* Regular text is black (fill="#000000" inline) */
     }
-    /* Regular text forced to black */
-    #text-elements .pdf-text {
-      fill: #000000 !important;
-    }
-    /* POI markers keep original colors */
     .poi-marker {
-      /* Colors preserved from PDF (red, blue, black, etc.) */
+      /* POI markers preserve original colors (red, blue, black) */
+      /* Subtle white outline for visibility on any background */
       stroke: #ffffff;
-      stroke-width: 0.3;
+      stroke-width: 0.5;
       paint-order: stroke fill;
     }
     .marsh-symbol {
