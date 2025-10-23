@@ -243,6 +243,20 @@ async function testSVGConversion() {
             console.log('  This is a Form XObject - parsing content...');
 
             try {
+              // Check if XObject has its own Resources (and fonts)
+              const xobjResourcesKey = PDFName.of('Resources');
+              const xobjResources = xobj.dict.get(xobjResourcesKey);
+              let xobjFontDict = fontDict; // Default to page fonts
+
+              if (xobjResources) {
+                const xobjFontKey = PDFName.of('Font');
+                const xobjFonts = xobjResources.get(xobjFontKey);
+                if (xobjFonts) {
+                  console.log('  XObject has its own Font dictionary');
+                  xobjFontDict = xobjFonts;
+                }
+              }
+
               // Get the content stream from the XObject
               const xobjContent = xobj.getContents();
 
@@ -263,11 +277,10 @@ async function testSVGConversion() {
                 xobjData = xobjContent;
               }
 
-              // Parse the XObject content stream
-              // XObjects may have their own font resources, but we'll use page fonts for now
+              // Parse the XObject content stream with XObject-specific fonts
               const xobjParser = new PDFContentParser({
                 pdfContext: pdfDoc.context,
-                fontDict: fontDict
+                fontDict: xobjFontDict
               });
               const { paths: xobjPaths, textObjects: xobjText } = xobjParser.parseContentStream(xobjData);
 
