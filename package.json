@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/dirtybirdnj/gellyscape#readme",
   "devDependencies": {
+    "electron": "^38.4.0"
   },
   "dependencies": {
     "georaster": "^1.6.0",
