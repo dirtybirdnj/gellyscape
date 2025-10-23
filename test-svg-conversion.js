@@ -38,6 +38,55 @@ function isMarshSymbol(textObj) {
   return false;
 }
 
+// POI marker characters
+const POI_MARKERS = {
+  redSquare: String.fromCharCode(0x00A7),    // § - section sign (red marker)
+  blueSquare: String.fromCharCode(0x00A8),   // ¨ - diaeresis (blue marker)
+  blackMarker1: '!',                         // exclamation (part of black marker pair)
+  blackMarker2: '"',                         // quote (part of black marker pair)
+  blackMarker3: '^',                         // caret (another marker type)
+  caveMarker: '&',                           // ampersand (cave/POI marker in TT1)
+  poiP: 'P',                                 // P in C2_2 (part of POI symbol)
+  poiO: 'O',                                 // O in C2_2 (part of POI symbol)
+  semicolon: ';',                            // semicolon markers
+  blockChar: String.fromCharCode(0x2584),    // ▄ lower half block
+  nMarker: 'n'                               // n in TT0 (marker)
+};
+
+// Function to check if a text object is a POI marker
+function isPOIMarker(textObj) {
+  // TT0 font markers (red/blue/black squares)
+  if (textObj.font === '/TT0') {
+    const markers = [
+      POI_MARKERS.redSquare,
+      POI_MARKERS.blueSquare,
+      POI_MARKERS.blackMarker1,
+      POI_MARKERS.blackMarker2,
+      POI_MARKERS.blackMarker3,
+      POI_MARKERS.nMarker
+    ];
+    if (markers.includes(textObj.text)) return true;
+  }
+
+  // TT1 font markers (cave/POI markers)
+  if (textObj.font === '/TT1' && textObj.text === POI_MARKERS.caveMarker) {
+    return true;
+  }
+
+  // C2_2 font markers (P, O symbols)
+  if (textObj.font === '/C2_2') {
+    const markers = [POI_MARKERS.poiP, POI_MARKERS.poiO, POI_MARKERS.blockChar];
+    if (markers.includes(textObj.text)) return true;
+  }
+
+  // TT2/TT3 semicolon markers
+  if ((textObj.font === '/TT2' || textObj.font === '/TT3') && textObj.text === POI_MARKERS.semicolon) {
+    return true;
+  }
+
+  return false;
+}
+
 async function testSVGConversion() {
   console.log('='.repeat(80));
   console.log('SVG PATH CONVERSION TEST');
@@ -565,13 +614,16 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
     });
   });
 
-  // Separate marsh symbols from other text
+  // Separate text into categories: marsh symbols, POI markers, and regular text
   const marshTexts = [];
+  const poiMarkers = [];
   const regularTexts = [];
 
   textObjects.forEach(textObj => {
     if (isMarshSymbol(textObj)) {
       marshTexts.push(textObj);
+    } else if (isPOIMarker(textObj)) {
+      poiMarkers.push(textObj);
     } else {
       regularTexts.push(textObj);
     }
@@ -579,6 +631,7 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
 
   console.log(`\nText categorization:`);
   console.log(`  Regular text: ${regularTexts.length}`);
+  console.log(`  POI markers: ${poiMarkers.length}`);
   console.log(`  Marsh symbols: ${marshTexts.length}`);
   console.log(`  Marsh layer: ${includeMarsh ? 'INCLUDED in output' : 'EXCLUDED from output'}`);
 
@@ -631,7 +684,9 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
 
-    return `<text id="text-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${textObj.fillColor}" class="pdf-text" data-font="${textObj.font}">${escapedText}</text>`;
+    // Force black text for readability (override PDF white/light colors)
+    // Keep original color as data attribute for reference
+    return `<text id="text-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="#000000" class="pdf-text" data-font="${textObj.font}" data-original-color="${textObj.fillColor}">${escapedText}</text>`;
   });
 
   // Transform marsh text objects to SVG coordinates (only if includeMarsh is true)
@@ -659,8 +714,39 @@ function generateSampleSVG(svgPaths, textObjects, width, height, bounds, pdfHeig
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
 
-    return `<text id="marsh-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${textObj.fillColor}" class="pdf-text marsh-symbol" data-font="${textObj.font}">${escapedText}</text>`;
+    return `<text id="marsh-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="#73b2ff" class="pdf-text marsh-symbol" data-font="${textObj.font}" data-original-color="${textObj.fillColor}">${escapedText}</text>`;
   }) : [];
+
+  // Transform POI marker objects to SVG coordinates with original colors preserved
+  const poiMarkerElements = poiMarkers.map((textObj, index) => {
+    const ctm = textObj.ctm;
+    let x = textObj.x;
+    let y = textObj.y;
+
+    // Apply transformation matrix
+    if (ctm) {
+      const transformedX = ctm.a * x + ctm.c * y + ctm.e;
+      const transformedY = ctm.b * x + ctm.d * y + ctm.f;
+      x = transformedX;
+      y = transformedY;
+    }
+
+    // Flip Y coordinate
+    y = pdfHeight - y;
+
+    // Escape text for XML
+    const escapedText = (textObj.text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
+    // Keep original color for POI markers (red, blue, black)
+    const fill = textObj.fillColor;
+
+    return `<text id="poi-${index}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${textObj.fontSize}" fill="${fill}" class="pdf-text poi-marker" data-font="${textObj.font}" data-marker-type="${textObj.text}">${escapedText}</text>`;
+  });
 
   // Use bounds to create optimal viewBox if provided
   let viewBox = `0 0 ${width} ${height}`;
@@ -681,7 +767,14 @@ ${marshTextElements.map(el => '    ' + el).join('\n')}
   </g>
 ` : '  <!-- Marsh layer excluded (use include-marsh flag to enable) -->\n';
 
-  const totalTextCount = includeMarsh ? regularTexts.length + marshTexts.length : regularTexts.length;
+  // Build POI marker group
+  const poiLayerGroup = `
+  <g id="poi-layer" data-layer="points-of-interest">
+${poiMarkerElements.map(el => '    ' + el).join('\n')}
+  </g>
+`;
+
+  const totalTextCount = includeMarsh ? regularTexts.length + poiMarkers.length + marshTexts.length : regularTexts.length + poiMarkers.length;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -689,7 +782,7 @@ ${marshTextElements.map(el => '    ' + el).join('\n')}
      height="${height}"
      viewBox="${viewBox}">
   <title>GeoPDF to SVG Conversion - Complete</title>
-  <desc>Conversion of ${svgPaths.length} paths and ${totalTextCount} text objects from VT_Burlington_20240809_TM_geo.pdf${includeMarsh ? ' (includes marsh layer)' : ' (marsh layer excluded)'}</desc>
+  <desc>Conversion of ${svgPaths.length} paths and ${totalTextCount} text objects (${regularTexts.length} text, ${poiMarkers.length} POI markers${includeMarsh ? ', ' + marshTexts.length + ' marsh symbols' : ''})</desc>
 
   <style>
     .operation-stroke { }
@@ -697,14 +790,21 @@ ${marshTextElements.map(el => '    ' + el).join('\n')}
     .operation-fill-stroke { }
     .pdf-text {
       font-family: Arial, sans-serif;
-      /* Override fill color to black for readability (use !important to override inline styles) */
+    }
+    /* Regular text forced to black */
+    #text-elements .pdf-text {
       fill: #000000 !important;
-      /* Add subtle white stroke for contrast against dark backgrounds */
+    }
+    /* POI markers keep original colors */
+    .poi-marker {
+      /* Colors preserved from PDF (red, blue, black, etc.) */
       stroke: #ffffff;
-      stroke-width: 0.2;
+      stroke-width: 0.3;
       paint-order: stroke fill;
     }
-    .marsh-symbol { opacity: 0.8; }
+    .marsh-symbol {
+      opacity: 0.8;
+    }
   </style>
 
   <g id="map-paths">
@@ -715,6 +815,7 @@ ${pathElements.map(el => '    ' + el).join('\n')}
 ${regularTextElements.map(el => '    ' + el).join('\n')}
   </g>
 
+${poiLayerGroup}
 ${marshLayerGroup}</svg>`;
 }
 
