@@ -106,8 +106,26 @@ async function testSVGConversion() {
     const fontKey = PDFName.of('Font');
     fontDict = resources.get(fontKey);
     if (fontDict) {
-      console.log('Found Font dictionary for text decoding\n');
+      console.log('Found Font dictionary for text decoding');
+      // Debug: show what fonts are actually available
+      try {
+        const fontEntries = Array.from(fontDict.entries());
+        console.log(`Available fonts in dictionary: ${fontEntries.length}`);
+        fontEntries.slice(0, 10).forEach(([name, ref]) => {
+          console.log(`  - ${name.toString()}`);
+        });
+        if (fontEntries.length > 10) {
+          console.log(`  ... and ${fontEntries.length - 10} more`);
+        }
+      } catch (e) {
+        console.log('Could not enumerate font entries:', e.message);
+      }
+      console.log();
+    } else {
+      console.log('WARNING: No Font dictionary found in Resources!\n');
     }
+  } else {
+    console.log('WARNING: No Resources found on page!\n');
   }
 
   // Parse paths
