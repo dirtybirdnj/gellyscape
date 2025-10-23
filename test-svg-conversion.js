@@ -189,6 +189,106 @@ async function testSVGConversion() {
 
   console.log(`Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects from first page\n`);
 
+  // Also check for XObjects (Form XObjects that might contain text)
+  console.log('='.repeat(80));
+  console.log('CHECKING FOR XOBJECTS (Form XObjects, Images, etc.)');
+  console.log('='.repeat(80));
+  console.log();
+
+  const resourcesKey = PDFName.of('Resources');
+  const resources = pageDict.get(resourcesKey);
+
+  if (resources) {
+    console.log('Found Resources dictionary');
+    const xobjectKey = PDFName.of('XObject');
+    const xobjects = resources.get(xobjectKey);
+
+    if (xobjects) {
+      console.log('Found XObject dictionary');
+      const xobjectEntries = Array.from(xobjects.entries());
+      console.log(`Found ${xobjectEntries.length} XObject(s)\n`);
+
+      for (const [name, xobjRef] of xobjectEntries) {
+        const xobjName = name.toString();
+        console.log(`XObject: ${xobjName}`);
+
+        try {
+          const xobj = pdfDoc.context.lookup(xobjRef);
+          if (!xobj || !xobj.dict) {
+            console.log('  Could not lookup XObject\n');
+            continue;
+          }
+
+          // Check subtype
+          const subtypeKey = PDFName.of('Subtype');
+          const subtype = xobj.dict.get(subtypeKey);
+          console.log(`  Subtype: ${subtype ? subtype.toString() : 'unknown'}`);
+
+          // We're interested in Form XObjects (not Image XObjects)
+          if (subtype && subtype.toString() === '/Form') {
+            console.log('  This is a Form XObject - parsing content...');
+
+            try {
+              // Get the content stream from the XObject
+              const xobjContent = xobj.getContents();
+
+              // Decompress if needed
+              let xobjData = null;
+              const filterKey = PDFName.of('Filter');
+              const filter = xobj.dict.get(filterKey);
+
+              if (filter && filter.toString() === '/FlateDecode') {
+                try {
+                  xobjData = zlib.inflateSync(Buffer.from(xobjContent));
+                  console.log(`  Decompressed: ${xobjContent.length} → ${xobjData.length} bytes`);
+                } catch (zlibError) {
+                  console.log(`  Decompression failed: ${zlibError.message}`);
+                  xobjData = xobjContent;
+                }
+              } else {
+                xobjData = xobjContent;
+              }
+
+              // Parse the XObject content stream
+              const xobjParser = new PDFContentParser();
+              const { paths: xobjPaths, textObjects: xobjText } = xobjParser.parseContentStream(xobjData);
+
+              console.log(`  Found ${xobjPaths.length} paths and ${xobjText.length} text objects`);
+
+              if (xobjText.length > 0) {
+                console.log('  Sample text from this XObject:');
+                xobjText.slice(0, 3).forEach((t, i) => {
+                  console.log(`    ${i + 1}. "${t.text}"`);
+                });
+              }
+
+              // Merge into main arrays
+              allPaths = allPaths.concat(xobjPaths);
+              allTextObjects = allTextObjects.concat(xobjText);
+
+            } catch (xobjParseError) {
+              console.log(`  Error parsing XObject: ${xobjParseError.message}`);
+            }
+          } else if (subtype) {
+            console.log(`  Skipping (type: ${subtype.toString()})`);
+          }
+
+        } catch (xobjError) {
+          console.log(`  Error processing XObject: ${xobjError.message}`);
+        }
+
+        console.log();
+      }
+    } else {
+      console.log('No XObject dictionary found in Resources');
+    }
+  } else {
+    console.log('No Resources dictionary found on page');
+  }
+
+  console.log();
+  console.log(`Total after XObjects: ${allPaths.length} paths and ${allTextObjects.length} text objects\n`);
+
   if (allPaths.length === 0) {
     console.log('No paths found. Cannot test conversion.');
     return;
