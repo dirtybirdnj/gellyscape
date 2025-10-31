@@ -54,7 +54,7 @@ class VectorExtractor {
 
     try {
       const pageDict = page.node.dict;
-      const annotsRef = pageDict.get(pageDict.context.obj('/Annots'));
+      const annotsRef = pageDict.get(PDFName.of('Annots'));
 
       if (!annotsRef) {
         return annotations;
@@ -70,16 +70,16 @@ class VectorExtractor {
 
           if (!annot || !annot.dict) continue;
 
-          const subtype = annot.dict.get(annot.dict.context.obj('/Subtype'));
+          const subtype = annot.dict.get(PDFName.of('Subtype'));
           const subtypeName = subtype?.toString();
 
           // Get annotation rectangle
-          const rect = annot.dict.get(annot.dict.context.obj('/Rect'));
+          const rect = annot.dict.get(PDFName.of('Rect'));
           const rectArray = rect?.array || [];
 
           // Get annotation contents/title
-          const contents = annot.dict.get(annot.dict.context.obj('/Contents'));
-          const title = annot.dict.get(annot.dict.context.obj('/T'));
+          const contents = annot.dict.get(PDFName.of('Contents'));
+          const title = annot.dict.get(PDFName.of('T'));
 
           const annotData = {
             type: 'annotation',
@@ -115,7 +115,7 @@ class VectorExtractor {
   extractLineGeometry(annot) {
     try {
       const dict = annot.dict;
-      const l = dict.get(dict.context.obj('/L'));
+      const l = dict.get(PDFName.of('L'));
 
       if (l && l.array && l.array.length === 4) {
         return {
@@ -136,7 +136,7 @@ class VectorExtractor {
   extractPolygonGeometry(annot) {
     try {
       const dict = annot.dict;
-      const vertices = dict.get(dict.context.obj('/Vertices'));
+      const vertices = dict.get(PDFName.of('Vertices'));
 
       if (vertices && vertices.array) {
         const coords = [];
@@ -164,7 +164,7 @@ class VectorExtractor {
   extractShapeGeometry(annot, subtype) {
     try {
       const dict = annot.dict;
-      const rect = dict.get(dict.context.obj('/Rect'));
+      const rect = dict.get(PDFName.of('Rect'));
 
       if (rect && rect.array && rect.array.length === 4) {
         const x1 = parseFloat(rect.array[0].toString());
@@ -223,7 +223,7 @@ class VectorExtractor {
       // like: m (moveto), l (lineto), c (curveto), h (closepath), etc.
 
       const pageDict = page.node.dict;
-      const contents = pageDict.get(pageDict.context.obj('/Contents'));
+      const contents = pageDict.get(PDFName.of('Contents'));
 
       if (contents) {
         // Parse content stream would require a full PDF content parser
@@ -247,13 +247,13 @@ class VectorExtractor {
 
     try {
       const pageDict = page.node.dict;
-      const resources = pageDict.get(pageDict.context.obj('/Resources'));
+      const resources = pageDict.get(PDFName.of('Resources'));
 
       if (!resources) {
         return forms;
       }
 
-      const xObject = resources.get(resources.context.obj('/XObject'));
+      const xObject = resources.get(PDFName.of('XObject'));
 
       if (!xObject) {
         return forms;
@@ -267,7 +267,7 @@ class VectorExtractor {
 
           if (!xObj) continue;
 
-          const subtype = xObj.dict?.get(xObj.dict.context.obj('/Subtype'));
+          const subtype = xObj.dict?.get(PDFName.of('Subtype'));
           const subtypeName = subtype?.toString();
 
           // Form XObjects contain reusable content (can be vector graphics)

@@ -31,13 +31,13 @@ class RasterExtractor {
 
     try {
       const pageDict = page.node.dict;
-      const resources = pageDict.get(pageDict.context.obj('/Resources'));
+      const resources = pageDict.get(PDFName.of('Resources'));
 
       if (!resources) {
         return images;
       }
 
-      const xObject = resources.get(resources.context.obj('/XObject'));
+      const xObject = resources.get(PDFName.of('XObject'));
 
       if (!xObject) {
         return images;
@@ -53,7 +53,7 @@ class RasterExtractor {
           if (!xObj) continue;
 
           // Check if this XObject is an image
-          const subtype = xObj.dict?.get(xObj.dict.context.obj('/Subtype'));
+          const subtype = xObj.dict?.get(PDFName.of('Subtype'));
           const subtypeName = subtype?.toString();
 
           if (subtypeName === '/Image') {
@@ -79,11 +79,11 @@ class RasterExtractor {
       const dict = imageObj.dict;
 
       // Get image properties
-      const width = dict.get(dict.context.obj('/Width'));
-      const height = dict.get(dict.context.obj('/Height'));
-      const colorSpace = dict.get(dict.context.obj('/ColorSpace'));
-      const bitsPerComponent = dict.get(dict.context.obj('/BitsPerComponent'));
-      const filter = dict.get(dict.context.obj('/Filter'));
+      const width = dict.get(PDFName.of('Width'));
+      const height = dict.get(PDFName.of('Height'));
+      const colorSpace = dict.get(PDFName.of('ColorSpace'));
+      const bitsPerComponent = dict.get(PDFName.of('BitsPerComponent'));
+      const filter = dict.get(PDFName.of('Filter'));
 
       // Get image data
       let imageBytes;
@@ -157,7 +157,7 @@ class RasterExtractor {
       const pageDict = page.node.dict;
 
       // Look for VP (Viewport) array in page
-      const vp = pageDict.get(pageDict.context.obj('/VP'));
+      const vp = pageDict.get(PDFName.of('VP'));
 
       if (vp) {
         geoInfo.hasGeoReference = true;
@@ -166,7 +166,7 @@ class RasterExtractor {
       }
 
       // Look for Measure dictionary
-      const measure = pageDict.get(pageDict.context.obj('/Measure'));
+      const measure = pageDict.get(PDFName.of('Measure'));
 
       if (measure) {
         geoInfo.hasGeoReference = true;
@@ -178,24 +178,24 @@ class RasterExtractor {
         // - LPTS: PDF coordinate points
 
         try {
-          const subtype = measure.get(measure.context.obj('/Subtype'));
+          const subtype = measure.get(PDFName.of('Subtype'));
           if (subtype?.toString() === '/GEO') {
             geoInfo.isGEO = true;
 
             // Extract bounds if available
-            const bounds = measure.get(measure.context.obj('/Bounds'));
+            const bounds = measure.get(PDFName.of('Bounds'));
             if (bounds && bounds.array) {
               geoInfo.bounds = bounds.array.map(v => v.toString());
             }
 
             // Extract GPTS (Geographic Points) if available
-            const gpts = measure.get(measure.context.obj('/GPTS'));
+            const gpts = measure.get(PDFName.of('GPTS'));
             if (gpts && gpts.array) {
               geoInfo.geographicPoints = gpts.array.map(v => v.toString());
             }
 
             // Extract LPTS (Layout Points) if available
-            const lpts = measure.get(measure.context.obj('/LPTS'));
+            const lpts = measure.get(PDFName.of('LPTS'));
             if (lpts && lpts.array) {
               geoInfo.layoutPoints = lpts.array.map(v => v.toString());
             }
