@@ -324,6 +324,7 @@ class PDFProcessor {
   async extractContentPaths() {
     const allPaths = [];
     const allTextObjects = [];
+    const allFontDetails = {}; // Collect fontDetails from all pages
 
     try {
       const pages = this.pdfDoc.getPages();
@@ -420,6 +421,10 @@ class PDFProcessor {
             console.log(`    Resources found: ${!!resources}`);
             const properties = resources?.get(PDFName.of('Properties'));
             console.log(`    Properties found: ${!!properties}`);
+
+            // Get font dictionary for font name extraction
+            const fontDict = resources?.get(PDFName.of('Font'));
+            console.log(`    Font dictionary found: ${!!fontDict}`);
 
             // Build mapping from /MC references to layer names
             const mcToLayerMap = {};
@@ -522,8 +527,12 @@ class PDFProcessor {
 
             // Parse the content stream
             console.log(`    📝 Parsing with PDFContentParser...`);
-            const parser = new PDFContentParser({ layerMap: mcToLayerMap });
-            const {paths, textObjects} = parser.parseContentStream(contentData);
+            const parser = new PDFContentParser({
+              layerMap: mcToLayerMap,
+              pdfContext: this.pdfDoc.context,
+              fontDict: fontDict
+            });
+            const {paths, textObjects, fontDetails} = parser.parseContentStream(contentData);
 
             console.log(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
             if (paths.length > 0) {
@@ -548,6 +557,11 @@ class PDFProcessor {
               textObj.page = pageIndex;
             });
             allTextObjects.push(...textObjects);
+
+            // Merge fontDetails from this stream into allFontDetails
+            if (fontDetails) {
+              Object.assign(allFontDetails, fontDetails);
+            }
           } catch (streamError) {
             console.error(`    ❌ Error:`, streamError.message);
             console.error(streamError.stack);
@@ -592,7 +606,8 @@ class PDFProcessor {
         pathsByPage,
         statistics: this.generatePathStatistics(allPaths),
         textObjects: allTextObjects,
-        textObjectsByLayer // Add grouped text objects
+        textObjectsByLayer, // Add grouped text objects
+        fontDetails: allFontDetails // Add merged font details
       };
 
     } catch (error) {
@@ -603,6 +618,7 @@ class PDFProcessor {
         statistics: {},
         textObjects: [],
         textObjectsByLayer: {},
+        fontDetails: {},
         error: error.message
       };
     }

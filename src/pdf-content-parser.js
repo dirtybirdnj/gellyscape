@@ -31,6 +31,7 @@ class PDFContentParser {
     this.pdfContext = options.pdfContext;
     this.fontDict = options.fontDict;
     this.fontCMaps = {}; // Cache for parsed ToUnicode CMaps
+    this.fontDetails = {}; // Map of font references to actual font names
   }
 
   /**
@@ -51,11 +52,12 @@ class PDFContentParser {
 
       return {
         paths: this.paths,
-        textObjects: this.textObjects
+        textObjects: this.textObjects,
+        fontDetails: this.fontDetails
       };
     } catch (error) {
       console.error('Error parsing content stream:', error);
-      return { paths: [], textObjects: [] };
+      return { paths: [], textObjects: [], fontDetails: {} };
     }
   }
 
@@ -930,12 +932,19 @@ class PDFContentParser {
         this.shouldLogFonts = true; // Log first few fonts
       }
 
+      // Extract and store BaseFont name for this font reference
+      const baseFont = font.dict.get(PDFName.of('BaseFont'));
+      if (baseFont) {
+        const baseFontStr = baseFont.toString().replace(/^\//, ''); // Remove leading slash
+        this.fontDetails[fontName] = baseFontStr; // Store with original fontName (with slash)
+        this.fontDetails[cleanFontName] = baseFontStr; // Also store with clean name
+      }
+
       if (!this.inspectedFonts.has(cleanFontName) && this.inspectedFonts.size < 3 && this.shouldLogFonts) {
         console.log(`\n  [Font Info] "${cleanFontName}":`);
 
         // Get font properties
         const subtype = font.dict.get(PDFName.of('Subtype'));
-        const baseFont = font.dict.get(PDFName.of('BaseFont'));
         const encoding = font.dict.get(PDFName.of('Encoding'));
         const toUnicode = font.dict.get(PDFName.of('ToUnicode'));
 

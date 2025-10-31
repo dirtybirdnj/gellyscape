@@ -131,7 +131,7 @@ function displayResults(data) {
   cachedBounds = null;
 
   // Display metadata
-  displayMetadata(data.metadata, data.info);
+  displayMetadata(data.metadata, data.info, data);
 
   // Display text data (fonts and text elements)
   displayTextData(data);
@@ -765,7 +765,7 @@ function generateSVG(isExport) {
   return svg;
 }
 
-function displayMetadata(metadata, info) {
+function displayMetadata(metadata, info, data) {
   metadataDiv.innerHTML = '';
 
   const items = [
@@ -784,6 +784,36 @@ function displayMetadata(metadata, info) {
     div.innerHTML = `<strong>${item.label}:</strong> ${item.value}`;
     metadataDiv.appendChild(div);
   });
+
+  // Extract and display fonts from the data
+  if (data && data.contentPaths && data.contentPaths.fontDetails) {
+    const fonts = new Set();
+
+    // Get fonts from fontDetails (actual BaseFont names like "Arial-Bold")
+    Object.values(data.contentPaths.fontDetails).forEach(fontName => {
+      if (fontName) {
+        fonts.add(fontName);
+      }
+    });
+
+    // Display fonts if any were found
+    if (fonts.size > 0) {
+      const fontsDiv = document.createElement('div');
+      fontsDiv.className = 'metadata-item';
+      fontsDiv.style.cssText = 'display: flex; flex-direction: column; gap: 2px; margin-top: 4px;';
+
+      const fontsLabel = document.createElement('strong');
+      fontsLabel.textContent = `Fonts (${fonts.size}):`;
+      fontsDiv.appendChild(fontsLabel);
+
+      const fontsList = document.createElement('div');
+      fontsList.style.cssText = 'font-size: 0.85em; color: #666; padding-left: 8px;';
+      fontsList.textContent = Array.from(fonts).sort().join(', ');
+      fontsDiv.appendChild(fontsList);
+
+      metadataDiv.appendChild(fontsDiv);
+    }
+  }
 }
 
 function displayTextData(data) {
@@ -797,14 +827,8 @@ function displayTextData(data) {
     hasTextContent: !!data.textContent
   });
 
-  // Extract fonts from PDF data
-  const fonts = new Set();
+  // Extract text elements only (fonts moved to metadata)
   const textElements = [];
-
-  // Check if we have font information in the data
-  if (data.fonts && Array.isArray(data.fonts)) {
-    data.fonts.forEach(font => fonts.add(font));
-  }
 
   // Check if we have text objects from content paths
   if (data.contentPaths && data.contentPaths.textObjects && Array.isArray(data.contentPaths.textObjects)) {
@@ -814,10 +838,6 @@ function displayTextData(data) {
       if (textObj.text && textObj.text.trim()) {
         textElements.push(textObj.text.trim());
       }
-      // Also collect font names
-      if (textObj.font) {
-        fonts.add(textObj.font);
-      }
     });
   }
 
@@ -826,27 +846,12 @@ function displayTextData(data) {
     textElements.push(...data.textContent);
   }
 
-  console.log('[Text Data] Collected:', { fontsCount: fonts.size, textElementsCount: textElements.length });
-
-  // Display fonts section
-  if (fonts.size > 0) {
-    const fontsTitle = document.createElement('div');
-    fontsTitle.style.cssText = 'font-weight: 600; color: #555; margin-bottom: 4px; font-size: 0.75em; padding: 3px 0;';
-    fontsTitle.textContent = `Fonts (${fonts.size})`;
-    textDataDiv.appendChild(fontsTitle);
-
-    Array.from(fonts).sort().forEach(font => {
-      const fontDiv = document.createElement('div');
-      fontDiv.className = 'font-item';
-      fontDiv.textContent = font;
-      textDataDiv.appendChild(fontDiv);
-    });
-  }
+  console.log('[Text Data] Collected:', { textElementsCount: textElements.length });
 
   // Display text elements section
   if (textElements.length > 0) {
     const textTitle = document.createElement('div');
-    textTitle.style.cssText = 'font-weight: 600; color: #555; margin: 8px 0 4px 0; font-size: 0.75em; padding: 3px 0;';
+    textTitle.style.cssText = 'font-weight: 600; color: #555; margin-bottom: 4px; font-size: 0.75em; padding: 3px 0;';
     textTitle.textContent = `Text Elements (${textElements.length})`;
     textDataDiv.appendChild(textTitle);
 
@@ -869,7 +874,7 @@ function displayTextData(data) {
   }
 
   // If no text data available, show message
-  if (fonts.size === 0 && textElements.length === 0) {
+  if (textElements.length === 0) {
     textDataDiv.innerHTML = '<div style="color: #999; font-size: 0.75em; padding: 6px; font-style: italic;">No text data found</div>';
   }
 }
