@@ -4,6 +4,11 @@ let currentFilePath = null;
 let enabledLayers = new Set();
 let allLayers = [];
 let currentZoom = 1.0;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startPanX = 0;
+let startPanY = 0;
 
 // DOM elements
 const uploadBtn = document.getElementById('uploadBtn');
@@ -16,17 +21,33 @@ const mapPreviewDiv = document.getElementById('mapPreview');
 const mapStatsDiv = document.getElementById('mapStats');
 const exportSvgBtn = document.getElementById('exportSvgBtn');
 const whiteBackgroundCheck = document.getElementById('whiteBackgroundCheck');
+const cropMaskCheck = document.getElementById('cropMaskCheck');
+const skipWhiteFillsCheck = document.getElementById('skipWhiteFillsCheck');
 const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const zoomResetBtn = document.getElementById('zoomResetBtn');
 const zoomLevelSpan = document.getElementById('zoomLevel');
+const exportStatusDiv = document.getElementById('exportStatus');
+const layerDetailsSection = document.getElementById('layerDetailsSection');
+const layerDetailsDiv = document.getElementById('layerDetails');
 
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
 exportSvgBtn.addEventListener('click', handleExportSVG);
+cropMaskCheck.addEventListener('change', generateMapPreview);
+skipWhiteFillsCheck.addEventListener('change', generateMapPreview);
 zoomInBtn.addEventListener('click', () => adjustZoom(0.1));
 zoomOutBtn.addEventListener('click', () => adjustZoom(-0.1));
 zoomResetBtn.addEventListener('click', resetZoom);
+
+// Panning event listeners
+mapPreviewDiv.addEventListener('mousedown', startPan);
+mapPreviewDiv.addEventListener('mousemove', doPan);
+mapPreviewDiv.addEventListener('mouseup', endPan);
+mapPreviewDiv.addEventListener('mouseleave', endPan);
+
+// Zoom with mouse wheel
+mapPreviewDiv.addEventListener('wheel', handleWheel);
 
 async function handleUpload() {
   try {
@@ -75,8 +96,9 @@ async function handleUpload() {
 }
 
 function displayResults(data) {
-  // Show results section
-  resultsDiv.style.display = 'block';
+  // Hide upload section and show results
+  uploadSection.classList.add('hidden');
+  resultsDiv.classList.add('active');
 
   // Display metadata
   displayMetadata(data.metadata, data.info);
@@ -89,22 +111,37 @@ function displayResults(data) {
 
   // Generate and display map preview
   generateMapPreview();
-
-  // Scroll to results
-  resultsDiv.scrollIntoView({ behavior: 'smooth' });
 }
 
 function extractLayersFromData(data) {
   allLayers = [];
   enabledLayers.clear();
 
-  // Extract layer names from contentPaths if available
+  // Extract layer names and colors from contentPaths if available
   if (data.contentPaths && data.contentPaths.paths) {
     const layerNames = new Set();
+    const layerColors = {}; // Map of layer name to Set of colors
 
     data.contentPaths.paths.forEach(path => {
       if (path.layer) {
         layerNames.add(path.layer);
+
+        // Collect colors for this layer
+        if (!layerColors[path.layer]) {
+          layerColors[path.layer] = new Set();
+        }
+
+        // Add fill color if present
+        if (path.fill && path.fillColor) {
+          const colorStr = `rgb(${path.fillColor.join(',')})`;
+          layerColors[path.layer].add(colorStr);
+        }
+
+        // Add stroke color if present
+        if (path.stroke && path.strokeColor) {
+          const colorStr = `rgb(${path.strokeColor.join(',')})`;
+          layerColors[path.layer].add(colorStr);
+        }
       }
     });
 
@@ -120,11 +157,18 @@ function extractLayersFromData(data) {
 
     allLayers = Array.from(layerNames).sort();
 
+    // Store color information in a global object for display
+    window.layerColorInfo = {};
+    allLayers.forEach(layer => {
+      window.layerColorInfo[layer] = Array.from(layerColors[layer] || []);
+    });
+
     // Enable all layers by default
     allLayers.forEach(layer => enabledLayers.add(layer));
   }
 
   console.log('Extracted layers:', allLayers);
+  console.log('Layer colors:', window.layerColorInfo);
 }
 
 function displayLayerControls() {
@@ -138,6 +182,7 @@ function displayLayerControls() {
   allLayers.forEach(layerName => {
     const layerItem = document.createElement('div');
     layerItem.className = 'layer-item';
+    layerItem.style.cssText = 'display: flex; align-items: center; justify-content: space-between;';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -155,6 +200,7 @@ function displayLayerControls() {
     const label = document.createElement('label');
     label.className = 'checkbox-label';
     label.htmlFor = `layer-${layerName}`;
+    label.style.cssText = 'flex: 1; min-width: 0;';
 
     const span = document.createElement('span');
     span.textContent = layerName;
@@ -162,8 +208,82 @@ function displayLayerControls() {
     label.appendChild(checkbox);
     label.appendChild(span);
     layerItem.appendChild(label);
+
+    // Add color swatches on the right if available
+    const colors = window.layerColorInfo?.[layerName] || [];
+    if (colors.length > 0) {
+      const swatchContainer = document.createElement('span');
+      swatchContainer.style.cssText = 'display: inline-flex; gap: 2px; flex-shrink: 0; margin-left: 6px;';
+
+      // Show up to 3 colors
+      colors.slice(0, 3).forEach(color => {
+        const swatch = document.createElement('span');
+        swatch.style.cssText = `
+          display: inline-block;
+          width: 12px;
+          height: 12px;
+          background: ${color};
+          border: 1px solid #ccc;
+          border-radius: 2px;
+          flex-shrink: 0;
+        `;
+        swatchContainer.appendChild(swatch);
+      });
+
+      layerItem.appendChild(swatchContainer);
+    }
+
     layerControlsDiv.appendChild(layerItem);
   });
+}
+
+function displayLayerDetails() {
+  if (!currentPDFData || !currentPDFData.contentPaths) {
+    layerDetailsSection.style.display = 'none';
+    return;
+  }
+
+  // Count paths per layer
+  const layerStats = {};
+  const paths = currentPDFData.contentPaths.paths;
+
+  paths.forEach(path => {
+    const layerName = path.layer || 'Unknown';
+    if (!layerStats[layerName]) {
+      layerStats[layerName] = { paths: 0, segments: 0 };
+    }
+    layerStats[layerName].paths++;
+
+    // Count segments
+    if (path.operations) {
+      layerStats[layerName].segments += path.operations.length;
+    }
+  });
+
+  // Sort by layer name
+  const sortedLayers = Object.keys(layerStats).sort();
+
+  layerDetailsDiv.innerHTML = '';
+
+  sortedLayers.forEach(layerName => {
+    const stats = layerStats[layerName];
+    const item = document.createElement('div');
+    item.className = 'layer-detail-item';
+
+    const nameSpan = document.createElement('div');
+    nameSpan.className = 'layer-detail-name';
+    nameSpan.textContent = layerName;
+
+    const infoSpan = document.createElement('div');
+    infoSpan.className = 'layer-detail-info';
+    infoSpan.textContent = `${stats.paths} paths, ${stats.segments} segments`;
+
+    item.appendChild(nameSpan);
+    item.appendChild(infoSpan);
+    layerDetailsDiv.appendChild(item);
+  });
+
+  layerDetailsSection.style.display = 'block';
 }
 
 function generateMapPreview() {
@@ -174,6 +294,12 @@ function generateMapPreview() {
 
   const svg = generateSVG(false); // false = no export, just preview
   mapPreviewDiv.innerHTML = svg;
+
+  // SVG now uses 100% width/height for preview, so no need for zoom calculation
+  // Just reset zoom to 1.0 on first load
+  if (currentZoom === 1.0 && panX === 0 && panY === 0) {
+    currentZoom = 1.0;
+  }
 
   // Apply current zoom level
   updateZoomDisplay();
@@ -192,7 +318,7 @@ function generateMapPreview() {
 async function handleExportSVG() {
   try {
     if (!currentPDFData || !currentPDFData.contentPaths) {
-      alert('No map data available to export');
+      showExportStatus('No map data available to export', 'error');
       return;
     }
 
@@ -205,10 +331,13 @@ async function handleExportSVG() {
 
     if (!result.success) {
       if (!result.canceled) {
-        alert(`Export failed: ${result.error}`);
+        showExportStatus(`Export failed: ${result.error}`, 'error');
       }
       return;
     }
+
+    // Show progress
+    showExportStatus('Generating SVG...', 'info');
 
     // Generate SVG with export settings
     const svg = generateSVG(true); // true = export mode
@@ -220,15 +349,56 @@ async function handleExportSVG() {
     });
 
     if (saveResult.success) {
-      alert(`SVG exported successfully to:\n${result.filePath}`);
+      const filename = result.filePath.split('/').pop();
+      showExportStatus(`✓ Saved ${filename}`, 'success');
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => hideExportStatus(), 5000);
     } else {
-      alert(`Export failed: ${saveResult.error}`);
+      showExportStatus(`Export failed: ${saveResult.error}`, 'error');
     }
 
   } catch (error) {
     console.error('Error exporting SVG:', error);
-    alert(`Export error: ${error.message}`);
+    showExportStatus(`Export error: ${error.message}`, 'error');
   }
+}
+
+function getPaperDimensions(paperSize, originalWidth, originalHeight) {
+  // Paper sizes in points (1 point = 1/72 inch)
+  const sizes = {
+    original: { width: Math.round(originalWidth), height: Math.round(originalHeight) },
+    letter: { width: 612, height: 792 },      // 8.5" × 11"
+    legal: { width: 612, height: 1008 },      // 8.5" × 14"
+    tabloid: { width: 792, height: 1224 },    // 11" × 17"
+    a4: { width: 595, height: 842 },          // 210mm × 297mm
+    a3: { width: 842, height: 1191 },         // 297mm × 420mm
+    a2: { width: 1191, height: 1684 },        // 420mm × 594mm
+    a1: { width: 1684, height: 2384 },        // 594mm × 841mm
+    a0: { width: 2384, height: 3370 }         // 841mm × 1189mm
+  };
+
+  const size = sizes[paperSize] || sizes.original;
+
+  // Calculate aspect ratios
+  const originalAspect = originalWidth / originalHeight;
+  const paperAspect = size.width / size.height;
+
+  // Fit content to paper size while maintaining aspect ratio
+  let width, height;
+  if (originalAspect > paperAspect) {
+    // Content is wider - fit to width
+    width = size.width;
+    height = size.width / originalAspect;
+  } else {
+    // Content is taller - fit to height
+    height = size.height;
+    width = size.height * originalAspect;
+  }
+
+  return {
+    width: `${Math.round(width)}pt`,
+    height: `${Math.round(height)}pt`
+  };
 }
 
 function generateSVG(isExport) {
@@ -237,8 +407,12 @@ function generateSVG(isExport) {
 
   // Filter paths by enabled layers
   const filteredPaths = paths.filter(path => {
-    if (!path.layer || allLayers.length === 0) return true; // No layer info, include all
-    return enabledLayers.has(path.layer);
+    // If layers exist, only include paths from enabled layers
+    if (allLayers.length > 0 && path.layer) {
+      return enabledLayers.has(path.layer);
+    }
+    // If no layers or path has no layer, only include if all layers are enabled
+    return allLayers.length === 0 || enabledLayers.size === allLayers.length;
   });
 
   if (filteredPaths.length === 0) {
@@ -294,8 +468,20 @@ function generateSVG(isExport) {
 
   // Generate SVG header
   const viewBox = `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
+
+  // For preview mode, use 100% width/height so it fits the container
+  // For export mode, calculate dimensions based on paper size
+  let widthAttr;
+  if (isExport) {
+    const paperSize = document.getElementById('paperSizeSelect')?.value || 'original';
+    const dimensions = getPaperDimensions(paperSize, width, height);
+    widthAttr = `width="${dimensions.width}" height="${dimensions.height}"`;
+  } else {
+    widthAttr = 'width="100%" height="100%"';
+  }
+
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(width)}" height="${Math.round(height)}" viewBox="${viewBox}">
+<svg xmlns="http://www.w3.org/2000/svg" ${widthAttr} viewBox="${viewBox}">
 `;
 
   // Add white background if requested (export only)
@@ -305,6 +491,36 @@ function generateSVG(isExport) {
 
   // Add title
   svg += `  <title>GeoPDF Export - ${enabledLayers.size} layers</title>\n`;
+
+  // Store crop bounds for later use (after path generation)
+  // Crop mask is added when checkbox is checked (both preview and export)
+  // User can then manually process it in vector editors
+  let cropMaskSvg = '';
+  if (cropMaskCheck.checked) {
+    // Calculate crop area - typically the inner map area excluding collar
+    // For now, we'll inset by 5% on each side as a reasonable default
+    const cropInset = Math.min(width, height) * 0.05;
+    const cropX = minX + cropInset;
+    const cropY = minY + cropInset;
+    const cropWidth = width - (cropInset * 2);
+    const cropHeight = height - (cropInset * 2);
+
+    // Create a semi-transparent white frame around the crop area
+    // This is a box with a hole cut out - the underlying layers are NOT cropped
+    // User can manually process this mask layer in vector editors (Inkscape, Illustrator, etc.)
+    cropMaskSvg += `  <g id="crop-mask" data-description="Crop guide - delete or use as clipping mask in vector editor">\n`;
+    // Top bar
+    cropMaskSvg += `    <rect x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${cropY - (minY - padding)}" fill="white" opacity="0.7"/>\n`;
+    // Bottom bar
+    cropMaskSvg += `    <rect x="${minX - padding}" y="${cropY + cropHeight}" width="${width + padding * 2}" height="${(maxY + padding) - (cropY + cropHeight)}" fill="white" opacity="0.7"/>\n`;
+    // Left bar
+    cropMaskSvg += `    <rect x="${minX - padding}" y="${cropY}" width="${cropX - (minX - padding)}" height="${cropHeight}" fill="white" opacity="0.7"/>\n`;
+    // Right bar
+    cropMaskSvg += `    <rect x="${cropX + cropWidth}" y="${cropY}" width="${(maxX + padding) - (cropX + cropWidth)}" height="${cropHeight}" fill="white" opacity="0.7"/>\n`;
+    // Add border outline for the crop area
+    cropMaskSvg += `    <rect x="${cropX}" y="${cropY}" width="${cropWidth}" height="${cropHeight}" fill="none" stroke="red" stroke-width="2" stroke-dasharray="10,5"/>\n`;
+    cropMaskSvg += `  </g>\n`;
+  }
 
   // Group paths by layer
   const pathsByLayer = {};
@@ -321,6 +537,14 @@ function generateSVG(isExport) {
     svg += `  <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
 
     pathsByLayer[layerName].forEach((path, index) => {
+      // Skip paths with pure white fill if the option is enabled
+      if (skipWhiteFillsCheck.checked && path.fill && path.fillColor) {
+        const [r, g, b] = path.fillColor;
+        if (r === 255 && g === 255 && b === 255) {
+          return; // Skip this path
+        }
+      }
+
       const pathData = path.operations.map(op => {
         switch (op.type) {
           case 'moveto':
@@ -347,6 +571,11 @@ function generateSVG(isExport) {
 
     svg += `  </g>\n`;
   });
+
+  // Add crop mask overlay on top of all paths
+  if (cropMaskSvg) {
+    svg += cropMaskSvg;
+  }
 
   svg += '</svg>';
   return svg;
@@ -448,6 +677,8 @@ function adjustZoom(delta) {
 
 function resetZoom() {
   currentZoom = 1.0;
+  panX = 0;
+  panY = 0;
   updateZoomDisplay();
 }
 
@@ -455,10 +686,47 @@ function updateZoomDisplay() {
   // Update zoom level text
   zoomLevelSpan.textContent = `${Math.round(currentZoom * 100)}%`;
 
-  // Apply zoom to SVG
+  // Apply zoom and pan to SVG
   const svg = mapPreviewDiv.querySelector('svg');
   if (svg) {
-    svg.style.transform = `scale(${currentZoom})`;
+    svg.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
     svg.style.transformOrigin = 'top left';
   }
+}
+
+function startPan(e) {
+  isPanning = true;
+  startPanX = e.clientX - panX;
+  startPanY = e.clientY - panY;
+  mapPreviewDiv.classList.add('panning');
+}
+
+function doPan(e) {
+  if (!isPanning) return;
+
+  panX = e.clientX - startPanX;
+  panY = e.clientY - startPanY;
+  updateZoomDisplay();
+}
+
+function endPan() {
+  isPanning = false;
+  mapPreviewDiv.classList.remove('panning');
+}
+
+function handleWheel(e) {
+  e.preventDefault();
+
+  // Zoom in/out with mouse wheel
+  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+  adjustZoom(delta);
+}
+
+function showExportStatus(message, type) {
+  exportStatusDiv.textContent = message;
+  exportStatusDiv.className = `export-status ${type}`;
+}
+
+function hideExportStatus() {
+  exportStatusDiv.className = 'export-status';
 }

@@ -15,6 +15,11 @@ class PDFContentParser {
     this.stateStack = [];
     this.debugCount = 0; // For debugging
 
+    // Marked content (layer) tracking
+    this.markedContentStack = []; // Stack of marked content tags
+    this.currentLayer = null; // Current layer name (resolved from /MC references)
+    this.layerMap = options.layerMap || {}; // Map from /MC0, /MC1, etc. to layer names
+
     // Text state
     this.inTextObject = false;
     this.currentFont = null;
@@ -127,6 +132,14 @@ class PDFContentParser {
         break;
       case 're': // rectangle
         this.opRectangle(operands);
+        break;
+
+      // Clipping path operators (ignore clipping, just end the path)
+      case 'W': // set clipping path (nonzero winding)
+      case 'W*': // set clipping path (even-odd)
+        // Clipping paths are used to crop/mask content
+        // We'll discard these paths and not include them in the output
+        this.opEndPathNoOutput();
         break;
 
       // Path painting operators
@@ -253,6 +266,21 @@ class PDFContentParser {
       // Text state operators (spacing, scaling, etc.) - track but don't need to process
       case 'Tc': case 'Tw': case 'Tz': case 'TL': case 'Tr': case 'Ts':
         // Character spacing, word spacing, horizontal scaling, leading, render mode, rise
+        break;
+
+      // Marked content operators (for layer tracking)
+      case 'BDC': // begin marked content sequence with properties
+        this.opBeginMarkedContent(operands);
+        break;
+      case 'BMC': // begin marked content sequence
+        this.opBeginMarkedContentSimple(operands);
+        break;
+      case 'EMC': // end marked content
+        this.opEndMarkedContent();
+        break;
+      case 'DP': // define marked content point with properties
+      case 'MP': // define marked content point
+        // These are point markers, not sequences - we don't need to track them
         break;
 
       default:
@@ -492,6 +520,13 @@ class PDFContentParser {
     this.currentPath = null;
   }
 
+  opEndPathNoOutput() {
+    // End path without painting and don't include in output
+    // Used for clipping paths (W, W*) which define crop regions
+    // We discard these to remove the cropping rectangles from the output
+    this.currentPath = null;
+  }
+
   // Graphics state operators
 
   opSetLineWidth(operands) {
@@ -593,7 +628,8 @@ class PDFContentParser {
       currentPoint: null,
       operation: null,
       style: {},
-      transform: this.graphicsState.ctm
+      transform: this.graphicsState.ctm,
+      layer: this.currentLayer // Track which layer/OCG this path belongs to
     };
   }
 
@@ -1037,6 +1073,66 @@ class PDFContentParser {
 
     const value = parseInt(hex, 16);
     return isNaN(value) ? null : value;
+  }
+
+  // Marked content operators (for layer tracking)
+
+  /**
+   * BDC - Begin marked content sequence with property dict
+   * Format: /Tag <<properties>> BDC
+   * Example: /OC /MC0 BDC
+   */
+  opBeginMarkedContent(operands) {
+    if (operands.length < 2) return;
+
+    const tag = operands[0]; // e.g., "/OC"
+    const mcRef = operands[1]; // e.g., "/MC0" or "<<...>>"
+
+    // Push to marked content stack
+    this.markedContentStack.push({ tag, mcRef });
+
+    // If this is an /OC (Optional Content) tag, resolve it to the actual layer name
+    if (tag === '/OC') {
+      // Resolve /MC0 -> actual layer name using the layerMap
+      const layerName = this.layerMap[mcRef];
+      this.currentLayer = layerName || mcRef; // Fall back to mcRef if no mapping found
+    }
+  }
+
+  /**
+   * BMC - Begin marked content sequence (simple, no properties)
+   * Format: /Tag BMC
+   */
+  opBeginMarkedContentSimple(operands) {
+    if (operands.length < 1) return;
+
+    const tag = operands[0];
+
+    // Push to marked content stack
+    this.markedContentStack.push({ tag, properties: null });
+  }
+
+  /**
+   * EMC - End marked content
+   */
+  opEndMarkedContent() {
+    if (this.markedContentStack.length === 0) return;
+
+    const popped = this.markedContentStack.pop();
+
+    // If we're exiting an /OC tag, update currentLayer
+    if (popped.tag === '/OC') {
+      // Find the most recent /OC tag still on the stack
+      this.currentLayer = null;
+      for (let i = this.markedContentStack.length - 1; i >= 0; i--) {
+        if (this.markedContentStack[i].tag === '/OC') {
+          const mcRef = this.markedContentStack[i].mcRef;
+          const layerName = this.layerMap[mcRef];
+          this.currentLayer = layerName || mcRef;
+          break;
+        }
+      }
+    }
   }
 }
 

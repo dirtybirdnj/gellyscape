@@ -155,6 +155,58 @@ class PDFProcessor {
 
       console.log(`✓ Found ${ocgs.array.length} Optional Content Groups`);
 
+      // OPTION 3: Explore OCProperties structure for Order, Usage, etc.
+      console.log('\n=== EXPLORING OCProperties STRUCTURE (Option 3) ===');
+
+      // Check for D (Default viewing) dictionary
+      const dDict = ocProperties.get(PDFName.of('D'));
+      if (dDict) {
+        console.log('✓ Found D (Default viewing) dictionary');
+
+        // Check for Order array
+        const order = dDict.get(PDFName.of('Order'));
+        if (order && order.array) {
+          console.log(`  Order array length: ${order.array.length}`);
+          console.log('  First 5 order entries:', order.array.slice(0, 5).map(o => o?.toString()));
+        }
+
+        // Check for ON array (initially visible layers)
+        const onArray = dDict.get(PDFName.of('ON'));
+        if (onArray && onArray.array) {
+          console.log(`  ON array length: ${onArray.array.length}`);
+        }
+
+        // Check for OFF array
+        const offArray = dDict.get(PDFName.of('OFF'));
+        if (offArray && offArray.array) {
+          console.log(`  OFF array length: ${offArray.array.length}`);
+        }
+
+        // Check for Intent
+        const intent = dDict.get(PDFName.of('Intent'));
+        if (intent) {
+          console.log(`  Intent: ${intent.toString()}`);
+        }
+
+        // Check for BaseState
+        const baseState = dDict.get(PDFName.of('BaseState'));
+        if (baseState) {
+          console.log(`  BaseState: ${baseState.toString()}`);
+        }
+      }
+
+      // Check for Configs array
+      const configs = ocProperties.get(PDFName.of('Configs'));
+      if (configs) {
+        console.log('✓ Found Configs array');
+      }
+
+      // OPTION 4: Check pdf-lib catalog methods
+      console.log('\n=== CHECKING PDF-LIB CATALOG METHODS (Option 4) ===');
+      console.log('Catalog object keys:', Object.keys(catalog));
+      console.log('Catalog dict keys:', catalog.dict ? Object.keys(catalog.dict) : 'N/A');
+      console.log('Available methods on catalog:', Object.getOwnPropertyNames(Object.getPrototypeOf(catalog)));
+
       this.layerNames = {};
 
       // Extract each OCG
@@ -166,7 +218,32 @@ class PDFProcessor {
 
         // Get the name of this layer
         const name = ocg.dict.get(PDFName.of('Name'));
-        const nameStr = name?.toString().replace(/[()]/g, '') || `Layer${i}`;
+        let nameStr = `Layer${i}`;
+
+        if (name) {
+          // Get the raw value - pdf-lib returns PDFString objects with .value as a JavaScript string
+          let rawValue = name.value || name.toString();
+
+          // Check for UTF-16 BOM (þÿ characters at the start)
+          if (rawValue.startsWith('þÿ')) {
+            // UTF-16 Big Endian - skip the BOM characters and decode the rest
+            // The string contains UTF-16 BE data: þÿ + pairs of bytes like \x00L\x00a\x00b...
+            const utf16Data = rawValue.slice(2); // Skip þÿ BOM
+
+            // Convert string to buffer (using latin1 to preserve byte values)
+            // Then swap bytes from big-endian to little-endian and decode
+            const utf16Bytes = Buffer.from(utf16Data, 'latin1');
+            nameStr = utf16Bytes.swap16().toString('utf16le');
+          } else {
+            // Regular ASCII/latin1 string
+            nameStr = rawValue;
+          }
+
+          // Clean up any PDF string delimiters if present
+          if (nameStr.startsWith('(') && nameStr.endsWith(')')) {
+            nameStr = nameStr.slice(1, -1);
+          }
+        }
 
         // Store mapping from OCG reference to name
         const ocgId = ocgRef.toString();
@@ -303,9 +380,114 @@ class PDFProcessor {
             const preview = contentData.slice(0, 100).toString('utf-8').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
             console.log(`    Preview: ${preview.substring(0, 80)}...`);
 
+            // Get page resources for marked content mapping
+            const resources = pageDict.get(PDFName.of('Resources'));
+            console.log(`    Resources found: ${!!resources}`);
+            const properties = resources?.get(PDFName.of('Properties'));
+            console.log(`    Properties found: ${!!properties}`);
+
+            // Build mapping from /MC references to layer names
+            const mcToLayerMap = {};
+            if (properties) {
+              const propDict = this.pdfDoc.context.lookup(properties);
+              console.log(`    PropDict type: ${propDict?.constructor?.name}`);
+
+              if (propDict) {
+                // pdf-lib PDFDict uses Map internally, iterate with entries()
+                const entries = propDict.entries ? Array.from(propDict.entries()) : [];
+                console.log(`    Property entries count: ${entries.length}`);
+
+                // Debug: Show what we have in layerNames
+                const layerNameKeys = Object.keys(this.layerNames).slice(0, 3);
+                console.log(`    Available layer IDs (first 3): ${layerNameKeys.join(', ')}`);
+
+                console.log('\n    === DEEP DIVE INTO PROPERTIES DICTIONARY ===');
+
+                for (const [key, value] of entries) {
+                  const mcName = key.toString(); // e.g., "/MC0"
+                  const ocgRef = value;
+
+                  // Debug: Show first few entries in detail
+                  if (entries.indexOf([key, value]) < 3) {
+                    console.log(`\n      Property entry: ${mcName}`);
+                    console.log(`        Value type: ${ocgRef?.constructor?.name}`);
+                    console.log(`        Value toString: ${ocgRef?.toString()}`);
+
+                    // Try to dereference this object to see what's inside
+                    const derefObj = this.pdfDoc.context.lookup(ocgRef);
+                    if (derefObj) {
+                      console.log(`        Dereferenced type: ${derefObj?.constructor?.name}`);
+
+                      // If it's a dict, show what keys it has
+                      if (derefObj.dict) {
+                        const dictKeys = [];
+                        for (const [k, v] of derefObj.dict.entries()) {
+                          dictKeys.push(k.toString());
+                        }
+                        console.log(`        Dict keys: ${dictKeys.join(', ')}`);
+
+                        // Check for OCG key
+                        const ocgKey = derefObj.dict.get(PDFName.of('OCG'));
+                        if (ocgKey) {
+                          console.log(`        ✓ Has OCG key: ${ocgKey.toString()}`);
+                        }
+
+                        // Check for Type key
+                        const typeKey = derefObj.dict.get(PDFName.of('Type'));
+                        if (typeKey) {
+                          console.log(`        Type: ${typeKey.toString()}`);
+                        }
+                      }
+                    }
+                  }
+
+                  // OPTION 1 IMPLEMENTATION: Dereference the OCMD and get the OCG reference
+                  const ocmdDict = this.pdfDoc.context.lookup(ocgRef);
+                  if (ocmdDict && ocmdDict.dict) {
+                    // Get the /OCGs key - this contains the actual OCG reference(s)
+                    const ocgsValue = ocmdDict.dict.get(PDFName.of('OCGs'));
+
+                    if (ocgsValue) {
+                      // OCGs can be either a single reference or an array of references
+                      let ocgRefArray = [];
+
+                      if (ocgsValue.array) {
+                        // It's an array
+                        ocgRefArray = ocgsValue.array;
+                      } else {
+                        // It's a single reference
+                        ocgRefArray = [ocgsValue];
+                      }
+
+                      // Try to map using the first OCG reference
+                      if (ocgRefArray.length > 0) {
+                        const firstOcgRef = ocgRefArray[0];
+                        const ocgId = firstOcgRef.toString();
+
+                        if (this.layerNames[ocgId]) {
+                          mcToLayerMap[mcName] = this.layerNames[ocgId];
+                          // Only log the first few to avoid spam
+                          if (Object.keys(mcToLayerMap).length <= 5) {
+                            console.log(`      ✓ ${mcName} -> ${this.layerNames[ocgId]}`);
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              console.log(`    ⚠️ No Properties dictionary found in Resources`);
+            }
+
+            console.log(`    Layer map has ${Object.keys(mcToLayerMap).length} entries`);
+            if (Object.keys(mcToLayerMap).length > 0 && Object.keys(mcToLayerMap).length <= 5) {
+              console.log(`    Sample mapping:`, mcToLayerMap);
+            }
+
             // Parse the content stream
             console.log(`    📝 Parsing with PDFContentParser...`);
-            const parser = new PDFContentParser();
+            const parser = new PDFContentParser({ layerMap: mcToLayerMap });
             const {paths, textObjects} = parser.parseContentStream(contentData);
 
             console.log(`    ✓ Found ${paths.length} paths`);
@@ -369,33 +551,53 @@ class PDFProcessor {
       return null;
     }
 
+    // Helper to apply transformation matrix to a point
+    const transformPoint = (point, transform) => {
+      if (!transform) return point;
+
+      // Apply transformation matrix
+      let x = transform.a * point.x + transform.c * point.y + transform.e;
+      let y = transform.b * point.x + transform.d * point.y + transform.f;
+
+      // Flip Y axis (PDF origin is bottom-left, SVG is top-left)
+      // Negate Y to flip vertically
+      y = -y;
+
+      return { x, y };
+    };
+
     path.subpaths.forEach(subpath => {
       // Add moveto for start point
       if (subpath.startPoint) {
+        const pt = transformPoint(subpath.startPoint, path.transform);
         operations.push({
           type: 'moveto',
-          x: subpath.startPoint.x,
-          y: subpath.startPoint.y
+          x: pt.x,
+          y: pt.y
         });
       }
 
       // Add segments
       subpath.segments.forEach(segment => {
         if (segment.type === 'line') {
+          const pt = transformPoint(segment.point, path.transform);
           operations.push({
             type: 'lineto',
-            x: segment.point.x,
-            y: segment.point.y
+            x: pt.x,
+            y: pt.y
           });
         } else if (segment.type === 'cubic') {
+          const cp1 = transformPoint(segment.cp1, path.transform);
+          const cp2 = transformPoint(segment.cp2, path.transform);
+          const pt = transformPoint(segment.point, path.transform);
           operations.push({
             type: 'curveto',
-            x1: segment.cp1.x,
-            y1: segment.cp1.y,
-            x2: segment.cp2.x,
-            y2: segment.cp2.y,
-            x3: segment.point.x,
-            y3: segment.point.y
+            x1: cp1.x,
+            y1: cp1.y,
+            x2: cp2.x,
+            y2: cp2.y,
+            x3: pt.x,
+            y3: pt.y
           });
         }
       });
@@ -422,7 +624,8 @@ class PDFProcessor {
       stroke: path.operation === 'stroke' || path.operation === 'fill-stroke',
       strokeColor: path.style.stroke ? hexToRgb(path.style.stroke) : [0, 0, 0],
       strokeWidth: path.style.strokeWidth || 1,
-      page: path.page
+      page: path.page,
+      layer: path.layer // Include the layer name
     };
   }
 

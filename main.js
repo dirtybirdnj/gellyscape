@@ -139,6 +139,7 @@ ipcMain.handle('export:vector', async (event, data) => {
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
       defaultPath,
       filters: filters || [
+        { name: 'SVG', extensions: ['svg'] },
         { name: 'GeoJSON', extensions: ['geojson', 'json'] },
         { name: 'KML', extensions: ['kml'] },
         { name: 'CSV', extensions: ['csv'] }
