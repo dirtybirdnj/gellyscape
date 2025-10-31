@@ -191,7 +191,7 @@ function extractLayersFromData(data) {
         }
 
         data.contentPaths.textObjectsByLayer[textLayer].forEach(textObj => {
-          if (textObj.fillColor) {
+          if (textObj.fillColor && Array.isArray(textObj.fillColor)) {
             const colorStr = `rgb(${textObj.fillColor.join(',')})`;
             layerColors[textLayerName].add(colorStr);
           }
