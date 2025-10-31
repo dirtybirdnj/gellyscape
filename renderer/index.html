@@ -22,17 +22,59 @@
       overflow: hidden;
     }
 
+    .app-wrapper {
+      width: 100%;
+      max-width: 1800px;
+      height: calc(100vh - 20px);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toolbar {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      padding: 10px 15px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .tab-btn {
+      background: transparent;
+      color: #667eea;
+      border: 2px solid #667eea;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.9em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      background: #f0f2ff;
+    }
+
+    .tab-btn.active {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-color: transparent;
+    }
+
     .container {
       background: white;
       border-radius: 12px;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-      width: 100%;
-      max-width: 1800px;
-      height: calc(100vh - 20px);
+      flex: 1;
       padding: 15px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
+      min-height: 0;
     }
 
     .upload-section {
@@ -562,121 +604,146 @@
       max-height: 0;
       opacity: 0;
     }
+
+    .tab-panel {
+      display: none;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .tab-panel.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-full {
+      background: #f8f9ff;
+      border: 1px solid #e0e4ff;
+      border-radius: 6px;
+      padding: 12px;
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="upload-section">
-      <h2 style="font-size: 1.2em; margin-bottom: 8px;">Upload GeoPDF File</h2>
-      <p style="margin: 8px 0 12px 0; color: #666; font-size: 0.9em;">Select a GeoPDF file to extract raster and vector layers</p>
-      <button id="uploadBtn" class="upload-btn">Choose PDF File</button>
-      <div id="status" class="status"></div>
+  <div class="app-wrapper">
+    <!-- Toolbar with tabs -->
+    <div id="toolbar" class="toolbar" style="display: none;">
+      <button class="tab-btn active" data-tab="vector-data">Vector Data</button>
+      <button class="tab-btn" data-tab="text-layers">Text Layers</button>
+      <button class="tab-btn" data-tab="text-data">Text Data</button>
+      <button class="tab-btn" data-tab="export">Export</button>
+      <button class="tab-btn" data-tab="metadata">Metadata</button>
     </div>
 
-    <div id="results" class="results">
-      <!-- Map Preview and Layer Controls -->
-      <div class="map-container">
-        <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
-          <!-- Text Data Panel -->
-          <div class="layer-controls-panel">
-            <div class="collapseable-header" onclick="toggleCollapse('textDataContent')">
-              <h3 class="layer-controls-title">Text Data</h3>
-              <span class="collapse-icon" id="textDataContent-icon">▼</span>
-            </div>
-            <div id="textDataContent" class="collapseable-content">
-              <div id="textData" class="text-data" style="margin-top: 6px;"></div>
-            </div>
-          </div>
+    <div class="container">
+      <div class="upload-section">
+        <h2 style="font-size: 1.2em; margin-bottom: 8px;">Upload GeoPDF File</h2>
+        <p style="margin: 8px 0 12px 0; color: #666; font-size: 0.9em;">Select a GeoPDF file to extract raster and vector layers</p>
+        <button id="uploadBtn" class="upload-btn">Choose PDF File</button>
+        <div id="status" class="status"></div>
+      </div>
 
-          <!-- Vector Data Panel -->
-          <div class="layer-controls-panel">
-            <div class="collapseable-header" onclick="toggleCollapse('vectorDataContent')">
-              <h3 class="layer-controls-title">Vector Data</h3>
-              <div style="display: flex; gap: 4px; align-items: center;">
-                <button id="selectAllLayersBtn" class="layer-toggle-btn" title="Select All">All</button>
-                <button id="deselectAllLayersBtn" class="layer-toggle-btn" title="Deselect All">None</button>
-                <span class="collapse-icon" id="vectorDataContent-icon">▼</span>
+      <div id="results" class="results">
+        <!-- Map Preview and Tab Content -->
+        <div class="map-container">
+          <!-- Left sidebar with tabs -->
+          <div style="display: flex; flex-direction: column; gap: 0; min-height: 0;">
+
+            <!-- Vector Data Tab -->
+            <div id="vector-data-panel" class="tab-panel active">
+              <div class="sidebar-full">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <h3 style="font-size: 1em; font-weight: bold; color: #333;">Vector Data</h3>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="selectAllLayersBtn" class="layer-toggle-btn" title="Select All">All</button>
+                    <button id="deselectAllLayersBtn" class="layer-toggle-btn" title="Deselect All">None</button>
+                  </div>
+                </div>
+                <div id="layerControls" class="layer-controls"></div>
               </div>
             </div>
-            <div id="vectorDataContent" class="collapseable-content">
-              <div id="layerControls" class="layer-controls" style="margin-top: 6px;"></div>
-            </div>
-          </div>
 
-          <!-- Text Data Panel (separate from vector) -->
-          <div class="layer-controls-panel">
-            <div class="collapseable-header" onclick="toggleCollapse('textLayersContent')">
-              <h3 class="layer-controls-title">Text Layers</h3>
-              <div style="display: flex; gap: 4px; align-items: center;">
-                <button id="selectAllTextLayersBtn" class="layer-toggle-btn" title="Select All Text">All</button>
-                <button id="deselectAllTextLayersBtn" class="layer-toggle-btn" title="Deselect All Text">None</button>
-                <span class="collapse-icon" id="textLayersContent-icon">▼</span>
+            <!-- Text Layers Tab -->
+            <div id="text-layers-panel" class="tab-panel">
+              <div class="sidebar-full">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <h3 style="font-size: 1em; font-weight: bold; color: #333;">Text Layers</h3>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="selectAllTextLayersBtn" class="layer-toggle-btn" title="Select All Text">All</button>
+                    <button id="deselectAllTextLayersBtn" class="layer-toggle-btn" title="Deselect All Text">None</button>
+                  </div>
+                </div>
+                <div id="textLayerControls" class="layer-controls"></div>
               </div>
             </div>
-            <div id="textLayersContent" class="collapseable-content">
-              <div id="textLayerControls" class="layer-controls" style="margin-top: 6px;"></div>
+
+            <!-- Text Data Tab -->
+            <div id="text-data-panel" class="tab-panel">
+              <div class="sidebar-full">
+                <h3 style="font-size: 1em; font-weight: bold; color: #333; margin-bottom: 12px;">Text Data</h3>
+                <div id="textData" class="text-data"></div>
+              </div>
             </div>
+
+            <!-- Export Tab -->
+            <div id="export-panel" class="tab-panel">
+              <div class="sidebar-full">
+                <h3 style="font-size: 1em; font-weight: bold; color: #333; margin-bottom: 12px;">Export</h3>
+                <label style="font-size: 0.9em; color: #333; margin-bottom: 8px; display: block; font-weight: 500;">
+                  Paper Size
+                </label>
+                <select id="paperSizeSelect" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 12px; font-size: 0.9em;">
+                  <option value="original">Original Size</option>
+                  <option value="letter">Letter (8.5" × 11")</option>
+                  <option value="legal">Legal (8.5" × 14")</option>
+                  <option value="tabloid">Tabloid (11" × 17")</option>
+                  <option value="a4">A4 (210mm × 297mm)</option>
+                  <option value="a3">A3 (297mm × 420mm)</option>
+                  <option value="a2">A2 (420mm × 594mm)</option>
+                  <option value="a1">A1 (594mm × 841mm)</option>
+                  <option value="a0">A0 (841mm × 1189mm)</option>
+                </select>
+                <label class="checkbox-label" style="margin-bottom: 8px;">
+                  <input type="checkbox" id="whiteBackgroundCheck" checked>
+                  <span>White background</span>
+                </label>
+                <label class="checkbox-label" style="margin-bottom: 12px;">
+                  <input type="checkbox" id="cropMaskCheck">
+                  <span>Show crop mask</span>
+                </label>
+                <button id="exportSvgBtn" class="export-btn">Export SVG</button>
+                <div id="exportStatus" class="export-status"></div>
+              </div>
+            </div>
+
+            <!-- Metadata Tab -->
+            <div id="metadata-panel" class="tab-panel">
+              <div class="sidebar-full">
+                <h3 style="font-size: 1em; font-weight: bold; color: #333; margin-bottom: 12px;">Metadata</h3>
+                <div id="metadata" class="metadata-grid"></div>
+              </div>
+            </div>
+
           </div>
 
-          <!-- Export Section -->
-          <div class="export-section">
-            <div class="collapseable-header" onclick="toggleCollapse('exportContent')">
-              <h3 style="font-size: 0.85em; font-weight: bold; color: #333; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">Export</h3>
-              <span class="collapse-icon" id="exportContent-icon">▼</span>
+          <!-- Map Preview -->
+          <div class="map-preview-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; min-width: 0;">
+              <h3 class="map-preview-title" style="margin: 0; border: none; padding: 0; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Map Preview</h3>
+              <div class="zoom-controls" style="flex-shrink: 0; margin-left: 8px;">
+                <button id="zoomOutBtn" class="zoom-btn" title="Zoom Out">−</button>
+                <span id="zoomLevel" style="margin: 0 4px; font-size: 0.85em;">100%</span>
+                <button id="zoomInBtn" class="zoom-btn" title="Zoom In">+</button>
+                <button id="zoomResetBtn" class="zoom-btn" title="Reset Zoom">⟲</button>
+              </div>
             </div>
-            <div id="exportContent" class="collapseable-content">
-              <label style="font-size: 0.8em; color: #333; margin-top: 6px; margin-bottom: 4px; display: block;">
-                Paper Size
-              </label>
-              <select id="paperSizeSelect" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 8px; font-size: 0.85em;">
-                <option value="original">Original Size</option>
-                <option value="letter">Letter (8.5" × 11")</option>
-                <option value="legal">Legal (8.5" × 14")</option>
-                <option value="tabloid">Tabloid (11" × 17")</option>
-                <option value="a4">A4 (210mm × 297mm)</option>
-                <option value="a3">A3 (297mm × 420mm)</option>
-                <option value="a2">A2 (420mm × 594mm)</option>
-                <option value="a1">A1 (594mm × 841mm)</option>
-                <option value="a0">A0 (841mm × 1189mm)</option>
-              </select>
-              <label class="checkbox-label">
-                <input type="checkbox" id="whiteBackgroundCheck" checked>
-                <span>White background</span>
-              </label>
-              <label class="checkbox-label">
-                <input type="checkbox" id="cropMaskCheck">
-                <span>Show crop mask</span>
-              </label>
-              <button id="exportSvgBtn" class="export-btn">Export SVG</button>
-              <div id="exportStatus" class="export-status"></div>
-            </div>
+            <div id="mapPreview" class="map-preview"></div>
+            <div id="mapStats" class="map-stats"></div>
           </div>
-
-          <!-- Metadata Section -->
-          <div class="export-section">
-            <div class="collapseable-header" onclick="toggleCollapse('metadataContent')">
-              <h3 style="font-size: 0.85em; font-weight: bold; color: #333; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">Metadata</h3>
-              <span class="collapse-icon" id="metadataContent-icon">▼</span>
-            </div>
-            <div id="metadataContent" class="collapseable-content">
-              <div id="metadata" class="metadata-grid" style="gap: 4px; margin-top: 6px;"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Map Preview -->
-        <div class="map-preview-panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; min-width: 0;">
-            <h3 class="map-preview-title" style="margin: 0; border: none; padding: 0; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Map Preview</h3>
-            <div class="zoom-controls" style="flex-shrink: 0; margin-left: 8px;">
-              <button id="zoomOutBtn" class="zoom-btn" title="Zoom Out">−</button>
-              <span id="zoomLevel" style="margin: 0 4px; font-size: 0.85em;">100%</span>
-              <button id="zoomInBtn" class="zoom-btn" title="Zoom In">+</button>
-              <button id="zoomResetBtn" class="zoom-btn" title="Reset Zoom">⟲</button>
-            </div>
-          </div>
-          <div id="mapPreview" class="map-preview"></div>
-          <div id="mapStats" class="map-stats"></div>
         </div>
       </div>
     </div>

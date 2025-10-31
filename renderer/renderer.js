@@ -36,6 +36,7 @@ const selectAllLayersBtn = document.getElementById('selectAllLayersBtn');
 const deselectAllLayersBtn = document.getElementById('deselectAllLayersBtn');
 const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
 const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
+const toolbarDiv = document.getElementById('toolbar');
 
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
@@ -57,6 +58,39 @@ mapPreviewDiv.addEventListener('mouseleave', endPan);
 
 // Zoom with mouse wheel
 mapPreviewDiv.addEventListener('wheel', handleWheel);
+
+// Tab switching
+function switchTab(tabName) {
+  // Hide all tab panels
+  document.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.classList.remove('active');
+  });
+
+  // Remove active state from all tab buttons
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  // Show the selected tab panel
+  const panel = document.getElementById(`${tabName}-panel`);
+  if (panel) {
+    panel.classList.add('active');
+  }
+
+  // Activate the selected tab button
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+  if (btn) {
+    btn.classList.add('active');
+  }
+}
+
+// Add click handlers to tab buttons
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    const tabName = e.target.getAttribute('data-tab');
+    switchTab(tabName);
+  });
+});
 
 // Set up progress listener for PDF processing
 let progressUnsubscribe = null;
@@ -126,6 +160,7 @@ function displayResults(data) {
   // Hide upload section and show results
   uploadSection.classList.add('hidden');
   resultsDiv.classList.add('active');
+  toolbarDiv.style.display = 'flex';
 
   // Reset cached bounds for new PDF
   cachedBounds = null;
@@ -234,23 +269,103 @@ function displayLayerControls() {
     return;
   }
 
-  // Separate vector layers from text layers
+  // Define metadata layer names (these contain both vector and text data)
+  const metadataLayerNames = [
+    'Map Elements',
+    'Projection and Grids',
+    'Road Names and Shields',
+    'Geographic Names',
+    'Structures'
+  ];
+
+  // Separate layers into three categories
   const vectorLayers = [];
+  const metadataLayers = [];
   const textLayers = [];
 
   allLayers.forEach(layerName => {
     if (layerName.startsWith('📝 ')) {
-      textLayers.push(layerName);
+      // Pure text layer
+      const baseName = layerName.substring(2).trim(); // Remove '📝 ' prefix
+      // Check if this is actually a metadata layer that contains text
+      if (metadataLayerNames.includes(baseName)) {
+        metadataLayers.push(layerName);
+      } else {
+        textLayers.push(layerName);
+      }
     } else {
-      vectorLayers.push(layerName);
+      // Vector layer
+      if (metadataLayerNames.includes(layerName)) {
+        metadataLayers.push(layerName);
+      } else {
+        vectorLayers.push(layerName);
+      }
     }
   });
 
-  // Populate vector layers
+  // Populate vector layers section
   if (vectorLayers.length === 0) {
     layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No vector layers found</div>';
   } else {
     vectorLayers.forEach(layerName => {
+      const layerItem = createLayerControlItem(layerName);
+      layerControlsDiv.appendChild(layerItem);
+    });
+  }
+
+  // Add Vector Metadata section if there are metadata layers
+  if (metadataLayers.length > 0) {
+    // Add separator
+    const separator = document.createElement('div');
+    separator.style.cssText = 'margin-top: 16px; padding-top: 12px; border-top: 2px solid #e0e4ff;';
+    layerControlsDiv.appendChild(separator);
+
+    // Create header with heading and buttons
+    const headerDiv = document.createElement('div');
+    headerDiv.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
+
+    const heading = document.createElement('h4');
+    heading.textContent = 'Vector Metadata';
+    heading.style.cssText = 'font-size: 0.9em; font-weight: 600; color: #555; margin: 0;';
+    headerDiv.appendChild(heading);
+
+    // Create All/None buttons container
+    const buttonsDiv = document.createElement('div');
+    buttonsDiv.style.cssText = 'display: flex; gap: 4px;';
+
+    const selectAllMetadataBtn = document.createElement('button');
+    selectAllMetadataBtn.textContent = 'All';
+    selectAllMetadataBtn.className = 'layer-toggle-btn';
+    selectAllMetadataBtn.title = 'Select All Metadata';
+    selectAllMetadataBtn.addEventListener('click', () => {
+      metadataLayers.forEach(layerName => {
+        enabledLayers.add(layerName);
+        const checkbox = document.getElementById(`layer-${layerName}`);
+        if (checkbox) checkbox.checked = true;
+      });
+      generateMapPreview();
+    });
+
+    const deselectAllMetadataBtn = document.createElement('button');
+    deselectAllMetadataBtn.textContent = 'None';
+    deselectAllMetadataBtn.className = 'layer-toggle-btn';
+    deselectAllMetadataBtn.title = 'Deselect All Metadata';
+    deselectAllMetadataBtn.addEventListener('click', () => {
+      metadataLayers.forEach(layerName => {
+        enabledLayers.delete(layerName);
+        const checkbox = document.getElementById(`layer-${layerName}`);
+        if (checkbox) checkbox.checked = false;
+      });
+      generateMapPreview();
+    });
+
+    buttonsDiv.appendChild(selectAllMetadataBtn);
+    buttonsDiv.appendChild(deselectAllMetadataBtn);
+    headerDiv.appendChild(buttonsDiv);
+
+    layerControlsDiv.appendChild(headerDiv);
+
+    metadataLayers.forEach(layerName => {
       const layerItem = createLayerControlItem(layerName);
       layerControlsDiv.appendChild(layerItem);
     });
@@ -325,18 +440,34 @@ function createLayerControlItem(layerName) {
 }
 
 function selectAllLayers() {
-  // Enable only vector layers (not text layers)
+  // Define metadata layer names
+  const metadataLayerNames = [
+    'Map Elements',
+    'Projection and Grids',
+    'Road Names and Shields',
+    'Geographic Names',
+    'Structures'
+  ];
+
+  // Enable only pure vector layers (not text layers or metadata)
   allLayers.forEach(layer => {
     if (!layer.startsWith('📝 ')) {
-      enabledLayers.add(layer);
+      // Check if it's not a metadata layer
+      const baseName = layer.startsWith('📝 ') ? layer.substring(2).trim() : layer;
+      if (!metadataLayerNames.includes(baseName)) {
+        enabledLayers.add(layer);
+      }
     }
   });
 
-  // Update checkboxes for vector layers
+  // Update checkboxes for pure vector layers
   allLayers.forEach(layerName => {
     if (!layerName.startsWith('📝 ')) {
-      const checkbox = document.getElementById(`layer-${layerName}`);
-      if (checkbox) checkbox.checked = true;
+      const baseName = layerName.startsWith('📝 ') ? layerName.substring(2).trim() : layerName;
+      if (!metadataLayerNames.includes(baseName)) {
+        const checkbox = document.getElementById(`layer-${layerName}`);
+        if (checkbox) checkbox.checked = true;
+      }
     }
   });
 
@@ -345,18 +476,34 @@ function selectAllLayers() {
 }
 
 function deselectAllLayers() {
-  // Disable only vector layers (not text layers)
+  // Define metadata layer names
+  const metadataLayerNames = [
+    'Map Elements',
+    'Projection and Grids',
+    'Road Names and Shields',
+    'Geographic Names',
+    'Structures'
+  ];
+
+  // Disable only pure vector layers (not text layers or metadata)
   allLayers.forEach(layer => {
     if (!layer.startsWith('📝 ')) {
-      enabledLayers.delete(layer);
+      // Check if it's not a metadata layer
+      const baseName = layer.startsWith('📝 ') ? layer.substring(2).trim() : layer;
+      if (!metadataLayerNames.includes(baseName)) {
+        enabledLayers.delete(layer);
+      }
     }
   });
 
-  // Update checkboxes for vector layers
+  // Update checkboxes for pure vector layers
   allLayers.forEach(layerName => {
     if (!layerName.startsWith('📝 ')) {
-      const checkbox = document.getElementById(`layer-${layerName}`);
-      if (checkbox) checkbox.checked = false;
+      const baseName = layerName.startsWith('📝 ') ? layerName.substring(2).trim() : layerName;
+      if (!metadataLayerNames.includes(baseName)) {
+        const checkbox = document.getElementById(`layer-${layerName}`);
+        if (checkbox) checkbox.checked = false;
+      }
     }
   });
 
@@ -365,18 +512,33 @@ function deselectAllLayers() {
 }
 
 function selectAllTextLayers() {
-  // Enable only text layers
+  // Define metadata layer names
+  const metadataLayerNames = [
+    'Map Elements',
+    'Projection and Grids',
+    'Road Names and Shields',
+    'Geographic Names',
+    'Structures'
+  ];
+
+  // Enable only text layers (excluding metadata)
   allLayers.forEach(layer => {
     if (layer.startsWith('📝 ')) {
-      enabledLayers.add(layer);
+      const baseName = layer.substring(2).trim();
+      if (!metadataLayerNames.includes(baseName)) {
+        enabledLayers.add(layer);
+      }
     }
   });
 
   // Update checkboxes for text layers
   allLayers.forEach(layerName => {
     if (layerName.startsWith('📝 ')) {
-      const checkbox = document.getElementById(`layer-${layerName}`);
-      if (checkbox) checkbox.checked = true;
+      const baseName = layerName.substring(2).trim();
+      if (!metadataLayerNames.includes(baseName)) {
+        const checkbox = document.getElementById(`layer-${layerName}`);
+        if (checkbox) checkbox.checked = true;
+      }
     }
   });
 
@@ -385,18 +547,33 @@ function selectAllTextLayers() {
 }
 
 function deselectAllTextLayers() {
-  // Disable only text layers
+  // Define metadata layer names
+  const metadataLayerNames = [
+    'Map Elements',
+    'Projection and Grids',
+    'Road Names and Shields',
+    'Geographic Names',
+    'Structures'
+  ];
+
+  // Disable only text layers (excluding metadata)
   allLayers.forEach(layer => {
     if (layer.startsWith('📝 ')) {
-      enabledLayers.delete(layer);
+      const baseName = layer.substring(2).trim();
+      if (!metadataLayerNames.includes(baseName)) {
+        enabledLayers.delete(layer);
+      }
     }
   });
 
   // Update checkboxes for text layers
   allLayers.forEach(layerName => {
     if (layerName.startsWith('📝 ')) {
-      const checkbox = document.getElementById(`layer-${layerName}`);
-      if (checkbox) checkbox.checked = false;
+      const baseName = layerName.substring(2).trim();
+      if (!metadataLayerNames.includes(baseName)) {
+        const checkbox = document.getElementById(`layer-${layerName}`);
+        if (checkbox) checkbox.checked = false;
+      }
     }
   });
 
