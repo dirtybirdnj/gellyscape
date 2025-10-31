@@ -90,8 +90,43 @@ class PDFProcessor {
         producer: pdfData.info?.Producer || 'Unknown',
         creationDate: pdfData.info?.CreationDate || null,
         modificationDate: pdfData.info?.ModDate || null,
-        pageCount: pdfData.numpages
+        pageCount: pdfData.numpages,
+        version: pdfData.info?.PDFFormatVersion || 'Unknown',
+        fileSize: this.buffer.length // File size in bytes
       };
+
+      // Extract page dimensions from first page
+      const pages = this.pdfDoc.getPages();
+      if (pages.length > 0) {
+        const firstPage = pages[0];
+        const { width, height } = firstPage.getSize();
+
+        // PDF dimensions are in points (1 point = 1/72 inch)
+        this.metadata.pageDimensions = {
+          widthPt: width,
+          heightPt: height,
+          widthIn: width / 72,
+          heightIn: height / 72,
+          widthMm: (width / 72) * 25.4,
+          heightMm: (height / 72) * 25.4
+        };
+
+        // Check for different page boxes
+        const pageDict = firstPage.node.dict;
+        const mediaBox = pageDict.get(PDFName.of('MediaBox'));
+        const cropBox = pageDict.get(PDFName.of('CropBox'));
+        const trimBox = pageDict.get(PDFName.of('TrimBox'));
+        const bleedBox = pageDict.get(PDFName.of('BleedBox'));
+        const artBox = pageDict.get(PDFName.of('ArtBox'));
+
+        this.metadata.pageBoxes = {
+          hasMediaBox: !!mediaBox,
+          hasCropBox: !!cropBox,
+          hasTrimBox: !!trimBox,
+          hasBleedBox: !!bleedBox,
+          hasArtBox: !!artBox
+        };
+      }
 
       // Look for GeoPDF specific metadata
       await this.extractGeospatialMetadata();

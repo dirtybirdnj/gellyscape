@@ -17,9 +17,9 @@ const uploadSection = document.querySelector('.upload-section');
 const statusDiv = document.getElementById('status');
 const resultsDiv = document.getElementById('results');
 const metadataDiv = document.getElementById('metadata');
-const textDataDiv = document.getElementById('textData');
+// Removed: const textDataDiv = document.getElementById('textData');
 const layerControlsDiv = document.getElementById('layerControls');
-const textLayerControlsDiv = document.getElementById('textLayerControls');
+// Removed: const textLayerControlsDiv = document.getElementById('textLayerControls');
 const mapPreviewDiv = document.getElementById('mapPreview');
 const mapStatsDiv = document.getElementById('mapStats');
 const exportSvgBtn = document.getElementById('exportSvgBtn');
@@ -34,9 +34,13 @@ const layerDetailsSection = document.getElementById('layerDetailsSection');
 const layerDetailsDiv = document.getElementById('layerDetails');
 const selectAllLayersBtn = document.getElementById('selectAllLayersBtn');
 const deselectAllLayersBtn = document.getElementById('deselectAllLayersBtn');
-const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
-const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
+// Removed: const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
+// Removed: const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
 const toolbarDiv = document.getElementById('toolbar');
+const exportLayersListDiv = document.getElementById('exportLayersList');
+const fileInfoDiv = document.getElementById('fileInfo');
+const fileNameDiv = document.getElementById('fileName');
+const fileSizeDiv = document.getElementById('fileSize');
 
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
@@ -47,8 +51,8 @@ zoomOutBtn.addEventListener('click', () => adjustZoom(-0.1));
 zoomResetBtn.addEventListener('click', resetZoom);
 selectAllLayersBtn.addEventListener('click', selectAllLayers);
 deselectAllLayersBtn.addEventListener('click', deselectAllLayers);
-selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
-deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
+// Removed: selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
+// Removed: deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
 
 // Panning event listeners
 mapPreviewDiv.addEventListener('mousedown', startPan);
@@ -165,11 +169,14 @@ function displayResults(data) {
   // Reset cached bounds for new PDF
   cachedBounds = null;
 
+  // Update file info in toolbar
+  updateFileInfo();
+
   // Display metadata
   displayMetadata(data.metadata, data.info, data);
 
-  // Display text data (fonts and text elements)
-  displayTextData(data);
+  // Text data display removed - Text Data tab no longer exists
+  // Removed: displayTextData(data);
 
   // Extract and display layers
   extractLayersFromData(data);
@@ -179,6 +186,24 @@ function displayResults(data) {
 
   // Generate and display map preview
   generateMapPreview();
+}
+
+function updateFileInfo() {
+  if (!currentFilePath || !currentPDFData) {
+    fileInfoDiv.style.display = 'none';
+    return;
+  }
+
+  // Extract filename from path
+  const fileName = currentFilePath.split('/').pop();
+
+  // Get file size from metadata (added during PDF processing)
+  const fileSize = currentPDFData.metadata?.fileSize;
+  const fileSizeText = fileSize ? formatBytes(fileSize) : '';
+
+  fileNameDiv.textContent = fileName;
+  fileSizeDiv.textContent = fileSizeText;
+  fileInfoDiv.style.display = 'flex';
 }
 
 function extractLayersFromData(data) {
@@ -262,7 +287,7 @@ function extractLayersFromData(data) {
 
 function displayLayerControls() {
   layerControlsDiv.innerHTML = '';
-  textLayerControlsDiv.innerHTML = '';
+  // Removed: textLayerControlsDiv.innerHTML = '';
 
   if (allLayers.length === 0) {
     layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No layers found</div>';
@@ -371,21 +396,31 @@ function displayLayerControls() {
     });
   }
 
-  // Populate text layers
-  if (textLayers.length === 0) {
-    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No text layers found</div>';
-  } else {
-    textLayers.forEach(layerName => {
-      const layerItem = createLayerControlItem(layerName);
-      textLayerControlsDiv.appendChild(layerItem);
-    });
-  }
+  // Text layers section removed - Overlay tab now shows map preview
+  // Removed: text layers population code
 }
 
 function createLayerControlItem(layerName) {
   const layerItem = document.createElement('div');
   layerItem.className = 'layer-item';
-  layerItem.style.cssText = 'display: flex; align-items: center; justify-content: space-between;';
+  layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+  // Calculate path count
+  let pathCount = 0;
+  if (currentPDFData && currentPDFData.contentPaths) {
+    const paths = currentPDFData.contentPaths.paths;
+    pathCount = paths.filter(p => p.layer === layerName).length;
+  }
+
+  // Path count badge on the left (outside the checkbox container)
+  const countBadge = document.createElement('span');
+  countBadge.style.cssText = 'font-size: 0.75em; color: #777; font-weight: 600; min-width: 40px; text-align: right; flex-shrink: 0;';
+  countBadge.textContent = pathCount > 0 ? pathCount.toLocaleString() : '0';
+  layerItem.appendChild(countBadge);
+
+  // Container for checkbox, label, and swatches
+  const checkboxContainer = document.createElement('div');
+  checkboxContainer.style.cssText = 'display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 0;';
 
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
@@ -410,7 +445,7 @@ function createLayerControlItem(layerName) {
 
   label.appendChild(checkbox);
   label.appendChild(span);
-  layerItem.appendChild(label);
+  checkboxContainer.appendChild(label);
 
   // Add color swatches on the right if available
   const colors = window.layerColorInfo?.[layerName] || [];
@@ -433,8 +468,10 @@ function createLayerControlItem(layerName) {
       swatchContainer.appendChild(swatch);
     });
 
-    layerItem.appendChild(swatchContainer);
+    checkboxContainer.appendChild(swatchContainer);
   }
+
+  layerItem.appendChild(checkboxContainer);
 
   return layerItem;
 }
@@ -511,75 +548,9 @@ function deselectAllLayers() {
   generateMapPreview();
 }
 
-function selectAllTextLayers() {
-  // Define metadata layer names
-  const metadataLayerNames = [
-    'Map Elements',
-    'Projection and Grids',
-    'Road Names and Shields',
-    'Geographic Names',
-    'Structures'
-  ];
-
-  // Enable only text layers (excluding metadata)
-  allLayers.forEach(layer => {
-    if (layer.startsWith('📝 ')) {
-      const baseName = layer.substring(2).trim();
-      if (!metadataLayerNames.includes(baseName)) {
-        enabledLayers.add(layer);
-      }
-    }
-  });
-
-  // Update checkboxes for text layers
-  allLayers.forEach(layerName => {
-    if (layerName.startsWith('📝 ')) {
-      const baseName = layerName.substring(2).trim();
-      if (!metadataLayerNames.includes(baseName)) {
-        const checkbox = document.getElementById(`layer-${layerName}`);
-        if (checkbox) checkbox.checked = true;
-      }
-    }
-  });
-
-  // Regenerate preview
-  generateMapPreview();
-}
-
-function deselectAllTextLayers() {
-  // Define metadata layer names
-  const metadataLayerNames = [
-    'Map Elements',
-    'Projection and Grids',
-    'Road Names and Shields',
-    'Geographic Names',
-    'Structures'
-  ];
-
-  // Disable only text layers (excluding metadata)
-  allLayers.forEach(layer => {
-    if (layer.startsWith('📝 ')) {
-      const baseName = layer.substring(2).trim();
-      if (!metadataLayerNames.includes(baseName)) {
-        enabledLayers.delete(layer);
-      }
-    }
-  });
-
-  // Update checkboxes for text layers
-  allLayers.forEach(layerName => {
-    if (layerName.startsWith('📝 ')) {
-      const baseName = layerName.substring(2).trim();
-      if (!metadataLayerNames.includes(baseName)) {
-        const checkbox = document.getElementById(`layer-${layerName}`);
-        if (checkbox) checkbox.checked = false;
-      }
-    }
-  });
-
-  // Regenerate preview
-  generateMapPreview();
-}
+// FUNCTIONS REMOVED - Text layer control buttons no longer exist
+// function selectAllTextLayers() { ... }
+// function deselectAllTextLayers() { ... }
 
 function displayLayerDetails() {
   if (!currentPDFData || !currentPDFData.contentPaths) {
@@ -630,6 +601,43 @@ function displayLayerDetails() {
   layerDetailsSection.style.display = 'block';
 }
 
+function updateExportLayersList() {
+  if (!exportLayersListDiv) return;
+
+  if (enabledLayers.size === 0) {
+    exportLayersListDiv.innerHTML = '<div style="color: #999; font-size: 0.9em; font-style: italic;">No layers enabled</div>';
+    return;
+  }
+
+  // Count paths per enabled layer
+  const layerPathCounts = {};
+  if (currentPDFData && currentPDFData.contentPaths) {
+    const paths = currentPDFData.contentPaths.paths;
+    paths.forEach(path => {
+      const layerName = path.layer || 'Unknown';
+      if (enabledLayers.has(layerName)) {
+        layerPathCounts[layerName] = (layerPathCounts[layerName] || 0) + 1;
+      }
+    });
+  }
+
+  // Sort enabled layers alphabetically
+  const sortedEnabledLayers = Array.from(enabledLayers).sort();
+
+  // Build the list HTML
+  const listItems = sortedEnabledLayers.map(layerName => {
+    const pathCount = layerPathCounts[layerName] || 0;
+    return `
+      <div style="padding: 8px 12px; background: #f5f7ff; border-radius: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 0.85em; color: #333; font-weight: 500;">${layerName}</div>
+        <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount} paths</div>
+      </div>
+    `;
+  }).join('');
+
+  exportLayersListDiv.innerHTML = listItems;
+}
+
 function generateMapPreview() {
   if (!currentPDFData || !currentPDFData.contentPaths) {
     mapPreviewDiv.innerHTML = '<div style="color: #999;">No map data available</div>';
@@ -657,6 +665,9 @@ function generateMapPreview() {
     <div>Visible paths: ${enabledPaths.length}</div>
     <div>Layers: ${enabledLayers.size} of ${allLayers.length} enabled</div>
   `;
+
+  // Update the export layers list
+  updateExportLayersList();
 }
 
 async function handleExportSVG() {
@@ -945,24 +956,228 @@ function generateSVG(isExport) {
 function displayMetadata(metadata, info, data) {
   metadataDiv.innerHTML = '';
 
-  const items = [
-    { label: 'Title', value: metadata.title || info?.Title || 'Unknown' },
-    { label: 'Creator', value: metadata.creator || info?.Creator || 'Unknown' },
-    { label: 'Producer', value: metadata.producer || info?.Producer || 'Unknown' },
-    { label: 'Pages', value: metadata.pageCount || 'Unknown' },
-    { label: 'GeoPDF', value: metadata.isGeoPDF ? 'Yes' : 'No' },
-    { label: 'Created', value: formatDate(metadata.creationDate || info?.CreationDate) }
-  ];
+  // Create section headers and organize by category
+  const createSection = (title) => {
+    const section = document.createElement('div');
+    section.style.cssText = 'margin-bottom: 16px;';
 
-  items.forEach(item => {
+    const heading = document.createElement('h4');
+    heading.textContent = title;
+    heading.style.cssText = 'font-size: 0.9em; font-weight: 600; color: #667eea; margin: 0 0 8px 0; padding-bottom: 4px; border-bottom: 2px solid #e0e4ff;';
+    section.appendChild(heading);
+
+    return section;
+  };
+
+  const createItem = (label, value) => {
     const div = document.createElement('div');
     div.className = 'metadata-item';
-    // Single-line format: label: value
-    div.innerHTML = `<strong>${item.label}:</strong> ${item.value}`;
-    metadataDiv.appendChild(div);
-  });
+    div.innerHTML = `<strong>${label}:</strong> ${value}`;
+    return div;
+  };
 
-  // Extract and display fonts from the data
+  // === DOCUMENT INFORMATION ===
+  const docSection = createSection('Document Information');
+  docSection.appendChild(createItem('Title', metadata.title || info?.Title || 'Unknown'));
+  docSection.appendChild(createItem('Creator', metadata.creator || info?.Creator || 'Unknown'));
+  docSection.appendChild(createItem('Producer', metadata.producer || info?.Producer || 'Unknown'));
+  docSection.appendChild(createItem('Created', formatDate(metadata.creationDate || info?.CreationDate)));
+  if (info?.ModDate) {
+    docSection.appendChild(createItem('Modified', formatDate(info.ModDate)));
+  }
+  if (info?.Subject) {
+    docSection.appendChild(createItem('Subject', info.Subject));
+  }
+  if (info?.Keywords) {
+    docSection.appendChild(createItem('Keywords', info.Keywords));
+  }
+  metadataDiv.appendChild(docSection);
+
+  // === PDF SPECIFICATIONS ===
+  const pdfSection = createSection('PDF Specifications');
+  pdfSection.appendChild(createItem('Pages', metadata.pageCount || 'Unknown'));
+  pdfSection.appendChild(createItem('GeoPDF', metadata.isGeoPDF ? 'Yes ✓' : 'No'));
+  pdfSection.appendChild(createItem('PDF Version', metadata.version || info?.PDFFormatVersion || 'Unknown'));
+
+  if (currentFilePath) {
+    try {
+      const fs = require('fs');
+      const stats = fs.statSync(currentFilePath);
+      pdfSection.appendChild(createItem('File Size', formatBytes(stats.size)));
+    } catch (e) {
+      // Ignore if can't get file size
+    }
+  }
+
+  // Page boxes information
+  if (metadata.pageBoxes) {
+    const boxes = [];
+    if (metadata.pageBoxes.hasMediaBox) boxes.push('MediaBox');
+    if (metadata.pageBoxes.hasCropBox) boxes.push('CropBox');
+    if (metadata.pageBoxes.hasTrimBox) boxes.push('TrimBox');
+    if (metadata.pageBoxes.hasBleedBox) boxes.push('BleedBox');
+    if (metadata.pageBoxes.hasArtBox) boxes.push('ArtBox');
+    if (boxes.length > 0) {
+      pdfSection.appendChild(createItem('Page Boxes', boxes.join(', ')));
+    }
+  }
+
+  metadataDiv.appendChild(pdfSection);
+
+  // === PAGE DIMENSIONS ===
+  if (metadata.pageDimensions) {
+    const dimSection = createSection('Page Dimensions');
+    const dims = metadata.pageDimensions;
+
+    // Points
+    dimSection.appendChild(createItem('Points (PDF units)',
+      `${dims.widthPt.toFixed(2)} × ${dims.heightPt.toFixed(2)} pt`));
+
+    // Inches
+    dimSection.appendChild(createItem('Inches (print)',
+      `${dims.widthIn.toFixed(2)}" × ${dims.heightIn.toFixed(2)}"`));
+
+    // Millimeters
+    dimSection.appendChild(createItem('Millimeters',
+      `${dims.widthMm.toFixed(2)} × ${dims.heightMm.toFixed(2)} mm`));
+
+    // Orientation
+    const orientation = dims.widthPt > dims.heightPt ? 'Landscape' :
+                       dims.widthPt < dims.heightPt ? 'Portrait' : 'Square';
+    dimSection.appendChild(createItem('Orientation', orientation));
+
+    // Aspect ratio
+    const aspectRatio = dims.widthPt / dims.heightPt;
+    dimSection.appendChild(createItem('Aspect Ratio',
+      `${aspectRatio.toFixed(3)}:1`));
+
+    // Estimated print size at 300 DPI
+    const widthPx300 = Math.round(dims.widthIn * 300);
+    const heightPx300 = Math.round(dims.heightIn * 300);
+    dimSection.appendChild(createItem('Pixels @ 300 DPI',
+      `${widthPx300.toLocaleString()} × ${heightPx300.toLocaleString()} px`));
+
+    // Estimated print size at 150 DPI (common scan resolution)
+    const widthPx150 = Math.round(dims.widthIn * 150);
+    const heightPx150 = Math.round(dims.heightIn * 150);
+    dimSection.appendChild(createItem('Pixels @ 150 DPI',
+      `${widthPx150.toLocaleString()} × ${heightPx150.toLocaleString()} px`));
+
+    metadataDiv.appendChild(dimSection);
+  }
+
+  // === LAYER INFORMATION ===
+  if (data && allLayers && allLayers.length > 0) {
+    const layerSection = createSection('Layer Information');
+    layerSection.appendChild(createItem('Total Layers', allLayers.length.toString()));
+
+    // Count layer types
+    const vectorLayers = allLayers.filter(l => !l.startsWith('📝 ')).length;
+    const textLayers = allLayers.filter(l => l.startsWith('📝 ')).length;
+
+    if (vectorLayers > 0) {
+      layerSection.appendChild(createItem('Vector Layers', vectorLayers.toString()));
+    }
+    if (textLayers > 0) {
+      layerSection.appendChild(createItem('Text Layers', textLayers.toString()));
+    }
+
+    // Show layer names in a collapsible list
+    if (data.layerNames && Object.keys(data.layerNames).length > 0) {
+      const layerNamesDiv = document.createElement('div');
+      layerNamesDiv.style.cssText = 'margin-top: 8px;';
+
+      const layerNamesLabel = document.createElement('strong');
+      layerNamesLabel.textContent = 'Layer Names:';
+      layerNamesDiv.appendChild(layerNamesLabel);
+
+      const layerNamesList = document.createElement('div');
+      layerNamesList.style.cssText = 'font-size: 0.85em; color: #666; padding-left: 8px; margin-top: 4px; max-height: 150px; overflow-y: auto;';
+
+      allLayers.slice(0, 20).forEach(name => {
+        const layerItem = document.createElement('div');
+        layerItem.textContent = `• ${name}`;
+        layerItem.style.cssText = 'padding: 2px 0;';
+        layerNamesList.appendChild(layerItem);
+      });
+
+      if (allLayers.length > 20) {
+        const moreItem = document.createElement('div');
+        moreItem.textContent = `... and ${allLayers.length - 20} more`;
+        moreItem.style.cssText = 'padding: 2px 0; font-style: italic; color: #999;';
+        layerNamesList.appendChild(moreItem);
+      }
+
+      layerNamesDiv.appendChild(layerNamesList);
+      layerSection.appendChild(layerNamesDiv);
+    }
+
+    metadataDiv.appendChild(layerSection);
+  }
+
+  // === CONTENT STATISTICS ===
+  if (data && data.contentPaths) {
+    const contentSection = createSection('Content Statistics');
+
+    // Path statistics
+    if (data.contentPaths.paths) {
+      contentSection.appendChild(createItem('Total Paths', data.contentPaths.paths.length.toLocaleString()));
+    }
+
+    // Text statistics
+    if (data.contentPaths.textObjects && data.contentPaths.textObjects.length > 0) {
+      contentSection.appendChild(createItem('Text Objects', data.contentPaths.textObjects.length.toLocaleString()));
+    }
+
+    // Detailed statistics from parser
+    if (data.contentPaths.statistics) {
+      const stats = data.contentPaths.statistics;
+
+      if (stats.total) {
+        contentSection.appendChild(createItem('Path Operations', stats.total.toLocaleString()));
+      }
+
+      if (stats.averageSegments) {
+        contentSection.appendChild(createItem('Avg Segments/Path', stats.averageSegments.toFixed(1)));
+      }
+
+      // Color statistics
+      if (stats.byColor && Object.keys(stats.byColor).length > 0) {
+        contentSection.appendChild(createItem('Unique Colors', Object.keys(stats.byColor).length.toString()));
+      }
+
+      // Operation type breakdown
+      if (stats.byOperation) {
+        const opsDiv = document.createElement('div');
+        opsDiv.style.cssText = 'margin-top: 8px;';
+
+        const opsLabel = document.createElement('strong');
+        opsLabel.textContent = 'Operation Types:';
+        opsDiv.appendChild(opsLabel);
+
+        const opsList = document.createElement('div');
+        opsList.style.cssText = 'font-size: 0.85em; color: #666; padding-left: 8px; margin-top: 4px;';
+
+        Object.entries(stats.byOperation)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .forEach(([op, count]) => {
+            const opItem = document.createElement('div');
+            const percentage = stats.total ? ((count / stats.total) * 100).toFixed(1) : '0';
+            opItem.textContent = `• ${op}: ${count.toLocaleString()} (${percentage}%)`;
+            opItem.style.cssText = 'padding: 2px 0;';
+            opsList.appendChild(opItem);
+          });
+
+        opsDiv.appendChild(opsList);
+        contentSection.appendChild(opsDiv);
+      }
+    }
+
+    metadataDiv.appendChild(contentSection);
+  }
+
+  // === FONTS ===
   if (data && data.contentPaths && data.contentPaths.fontDetails) {
     const fonts = new Set();
 
@@ -975,86 +1190,28 @@ function displayMetadata(metadata, info, data) {
 
     // Display fonts if any were found
     if (fonts.size > 0) {
-      const fontsDiv = document.createElement('div');
-      fontsDiv.className = 'metadata-item';
-      fontsDiv.style.cssText = 'display: flex; flex-direction: column; gap: 2px; margin-top: 4px;';
-
-      const fontsLabel = document.createElement('strong');
-      fontsLabel.textContent = `Fonts (${fonts.size}):`;
-      fontsDiv.appendChild(fontsLabel);
+      const fontSection = createSection('Fonts');
+      fontSection.appendChild(createItem('Total Fonts', fonts.size.toString()));
 
       const fontsList = document.createElement('div');
-      fontsList.style.cssText = 'font-size: 0.85em; color: #666; padding-left: 8px;';
-      fontsList.textContent = Array.from(fonts).sort().join(', ');
-      fontsDiv.appendChild(fontsList);
+      fontsList.style.cssText = 'font-size: 0.85em; color: #666; padding-left: 8px; margin-top: 4px;';
 
-      metadataDiv.appendChild(fontsDiv);
+      const sortedFonts = Array.from(fonts).sort();
+      sortedFonts.forEach(font => {
+        const fontItem = document.createElement('div');
+        fontItem.textContent = `• ${font}`;
+        fontItem.style.cssText = 'padding: 2px 0;';
+        fontsList.appendChild(fontItem);
+      });
+
+      fontSection.appendChild(fontsList);
+      metadataDiv.appendChild(fontSection);
     }
   }
 }
 
-function displayTextData(data) {
-  textDataDiv.innerHTML = '';
-
-  console.log('[Text Data] Processing data:', {
-    hasContentPaths: !!data.contentPaths,
-    hasTextObjects: !!(data.contentPaths && data.contentPaths.textObjects),
-    textObjectsCount: data.contentPaths?.textObjects?.length || 0,
-    hasFonts: !!data.fonts,
-    hasTextContent: !!data.textContent
-  });
-
-  // Extract text elements only (fonts moved to metadata)
-  const textElements = [];
-
-  // Check if we have text objects from content paths
-  if (data.contentPaths && data.contentPaths.textObjects && Array.isArray(data.contentPaths.textObjects)) {
-    console.log('[Text Data] Found', data.contentPaths.textObjects.length, 'text objects');
-    // Extract unique text strings from text objects
-    data.contentPaths.textObjects.forEach(textObj => {
-      if (textObj.text && textObj.text.trim()) {
-        textElements.push(textObj.text.trim());
-      }
-    });
-  }
-
-  // Check if we have text content in the data (legacy)
-  if (data.textContent && Array.isArray(data.textContent)) {
-    textElements.push(...data.textContent);
-  }
-
-  console.log('[Text Data] Collected:', { textElementsCount: textElements.length });
-
-  // Display text elements section
-  if (textElements.length > 0) {
-    const textTitle = document.createElement('div');
-    textTitle.style.cssText = 'font-weight: 600; color: #555; margin-bottom: 4px; font-size: 0.75em; padding: 3px 0;';
-    textTitle.textContent = `Text Elements (${textElements.length})`;
-    textDataDiv.appendChild(textTitle);
-
-    // Show first 50 text elements
-    textElements.slice(0, 50).forEach(text => {
-      const textDiv = document.createElement('div');
-      textDiv.className = 'text-item';
-      // Truncate long text
-      const displayText = text.length > 80 ? text.substring(0, 80) + '...' : text;
-      textDiv.textContent = displayText;
-      textDataDiv.appendChild(textDiv);
-    });
-
-    if (textElements.length > 50) {
-      const moreDiv = document.createElement('div');
-      moreDiv.style.cssText = 'color: #999; font-size: 0.7em; padding: 3px 6px; font-style: italic;';
-      moreDiv.textContent = `+ ${textElements.length - 50} more...`;
-      textDataDiv.appendChild(moreDiv);
-    }
-  }
-
-  // If no text data available, show message
-  if (textElements.length === 0) {
-    textDataDiv.innerHTML = '<div style="color: #999; font-size: 0.75em; padding: 6px; font-style: italic;">No text data found</div>';
-  }
-}
+// FUNCTION REMOVED - Text Data tab no longer exists
+// function displayTextData(data) { ... }
 // Helper functions
 function showStatus(message, type) {
   statusDiv.textContent = message;
