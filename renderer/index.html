@@ -35,23 +35,6 @@
       flex-direction: column;
     }
 
-    header {
-      text-align: center;
-      margin-bottom: 6px;
-      flex-shrink: 0;
-    }
-
-    h1 {
-      color: #333;
-      font-size: 1.2em;
-      margin-bottom: 2px;
-    }
-
-    .subtitle {
-      color: #666;
-      font-size: 0.75em;
-    }
-
     .upload-section {
       border: 2px dashed #667eea;
       border-radius: 8px;
@@ -168,11 +151,32 @@
       flex-shrink: 0;
     }
 
-    .layer-controls {
+    .layer-controls, .text-data {
       flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
       min-height: 0;
+    }
+
+    .text-item {
+      margin-bottom: 3px;
+      padding: 3px 6px;
+      background: white;
+      border-radius: 3px;
+      border: 1px solid #e0e4ff;
+      font-size: 0.75em;
+      line-height: 1.3;
+    }
+
+    .font-item {
+      margin-bottom: 3px;
+      padding: 3px 6px;
+      background: white;
+      border-radius: 3px;
+      border: 1px solid #e0e4ff;
+      font-size: 0.75em;
+      font-weight: 500;
+      color: #555;
     }
 
     .layer-item {
@@ -354,29 +358,21 @@
     }
 
     .metadata-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 6px;
-      margin-bottom: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
     .metadata-item {
-      background: #f8f9ff;
-      padding: 6px 8px;
-      border-radius: 4px;
-      border-left: 2px solid #667eea;
-    }
-
-    .metadata-label {
-      font-weight: 600;
-      color: #555;
-      margin-bottom: 2px;
+      padding: 2px 6px;
       font-size: 0.7em;
+      line-height: 1.4;
+      color: #333;
     }
 
-    .metadata-value {
-      color: #333;
-      font-size: 0.8em;
+    .metadata-item strong {
+      color: #555;
+      font-weight: 600;
     }
 
     .layer-list {
@@ -507,15 +503,69 @@
     .zoom-btn:active {
       transform: translateY(0);
     }
+
+    .layer-toggle-btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 0.7em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .layer-toggle-btn:hover {
+      background: #764ba2;
+      transform: translateY(-1px);
+    }
+
+    .layer-toggle-btn:active {
+      transform: translateY(0);
+    }
+
+    .collapseable-header {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s ease;
+      padding: 3px 0;
+    }
+
+    .collapseable-header:hover {
+      opacity: 0.8;
+    }
+
+    .collapse-icon {
+      font-size: 0.9em;
+      transition: transform 0.3s ease;
+      display: inline-block;
+      font-weight: bold;
+      color: #667eea;
+    }
+
+    .collapse-icon.collapsed {
+      transform: rotate(-90deg);
+    }
+
+    .collapseable-content {
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+      max-height: 2000px;
+      opacity: 1;
+    }
+
+    .collapseable-content.collapsed {
+      max-height: 0;
+      opacity: 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>GellyScape</h1>
-      <p class="subtitle">GeoPDF Layer Extraction & Processing</p>
-    </header>
-
     <div class="upload-section">
       <h2 style="font-size: 1.2em; margin-bottom: 8px;">Upload GeoPDF File</h2>
       <p style="margin: 8px 0 12px 0; color: #666; font-size: 0.9em;">Select a GeoPDF file to extract raster and vector layers</p>
@@ -524,51 +574,93 @@
     </div>
 
     <div id="results" class="results">
-      <!-- Metadata Section -->
-      <div class="section metadata-section">
-        <h2 class="section-title">Document Metadata</h2>
-        <div id="metadata" class="metadata-grid"></div>
-      </div>
-
       <!-- Map Preview and Layer Controls -->
       <div class="map-container">
         <div style="display: flex; flex-direction: column; gap: 8px; min-height: 0;">
-          <!-- Layer Controls Panel -->
+          <!-- Text Data Panel -->
           <div class="layer-controls-panel">
-            <h3 class="layer-controls-title">Layers</h3>
-            <div id="layerControls" class="layer-controls"></div>
+            <div class="collapseable-header" onclick="toggleCollapse('textDataContent')">
+              <h3 class="layer-controls-title">Text Data</h3>
+              <span class="collapse-icon" id="textDataContent-icon">▼</span>
+            </div>
+            <div id="textDataContent" class="collapseable-content">
+              <div id="textData" class="text-data" style="margin-top: 6px;"></div>
+            </div>
+          </div>
+
+          <!-- Vector Data Panel -->
+          <div class="layer-controls-panel">
+            <div class="collapseable-header" onclick="toggleCollapse('vectorDataContent')">
+              <h3 class="layer-controls-title">Vector Data</h3>
+              <div style="display: flex; gap: 4px; align-items: center;">
+                <button id="selectAllLayersBtn" class="layer-toggle-btn" title="Select All">All</button>
+                <button id="deselectAllLayersBtn" class="layer-toggle-btn" title="Deselect All">None</button>
+                <span class="collapse-icon" id="vectorDataContent-icon">▼</span>
+              </div>
+            </div>
+            <div id="vectorDataContent" class="collapseable-content">
+              <div id="layerControls" class="layer-controls" style="margin-top: 6px;"></div>
+            </div>
+          </div>
+
+          <!-- Text Data Panel (separate from vector) -->
+          <div class="layer-controls-panel">
+            <div class="collapseable-header" onclick="toggleCollapse('textLayersContent')">
+              <h3 class="layer-controls-title">Text Layers</h3>
+              <div style="display: flex; gap: 4px; align-items: center;">
+                <button id="selectAllTextLayersBtn" class="layer-toggle-btn" title="Select All Text">All</button>
+                <button id="deselectAllTextLayersBtn" class="layer-toggle-btn" title="Deselect All Text">None</button>
+                <span class="collapse-icon" id="textLayersContent-icon">▼</span>
+              </div>
+            </div>
+            <div id="textLayersContent" class="collapseable-content">
+              <div id="textLayerControls" class="layer-controls" style="margin-top: 6px;"></div>
+            </div>
           </div>
 
           <!-- Export Section -->
           <div class="export-section">
-            <label style="font-size: 0.8em; color: #333; margin-bottom: 4px; display: block;">
-              Paper Size
-            </label>
-            <select id="paperSizeSelect" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 8px; font-size: 0.85em;">
-              <option value="original">Original Size</option>
-              <option value="letter">Letter (8.5" × 11")</option>
-              <option value="legal">Legal (8.5" × 14")</option>
-              <option value="tabloid">Tabloid (11" × 17")</option>
-              <option value="a4">A4 (210mm × 297mm)</option>
-              <option value="a3">A3 (297mm × 420mm)</option>
-              <option value="a2">A2 (420mm × 594mm)</option>
-              <option value="a1">A1 (594mm × 841mm)</option>
-              <option value="a0">A0 (841mm × 1189mm)</option>
-            </select>
-            <label class="checkbox-label">
-              <input type="checkbox" id="whiteBackgroundCheck" checked>
-              <span>White background</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="cropMaskCheck">
-              <span>Show crop mask</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="skipWhiteFillsCheck" checked>
-              <span>Skip white fills</span>
-            </label>
-            <button id="exportSvgBtn" class="export-btn">Export SVG</button>
-            <div id="exportStatus" class="export-status"></div>
+            <div class="collapseable-header" onclick="toggleCollapse('exportContent')">
+              <h3 style="font-size: 0.85em; font-weight: bold; color: #333; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">Export</h3>
+              <span class="collapse-icon" id="exportContent-icon">▼</span>
+            </div>
+            <div id="exportContent" class="collapseable-content">
+              <label style="font-size: 0.8em; color: #333; margin-top: 6px; margin-bottom: 4px; display: block;">
+                Paper Size
+              </label>
+              <select id="paperSizeSelect" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 8px; font-size: 0.85em;">
+                <option value="original">Original Size</option>
+                <option value="letter">Letter (8.5" × 11")</option>
+                <option value="legal">Legal (8.5" × 14")</option>
+                <option value="tabloid">Tabloid (11" × 17")</option>
+                <option value="a4">A4 (210mm × 297mm)</option>
+                <option value="a3">A3 (297mm × 420mm)</option>
+                <option value="a2">A2 (420mm × 594mm)</option>
+                <option value="a1">A1 (594mm × 841mm)</option>
+                <option value="a0">A0 (841mm × 1189mm)</option>
+              </select>
+              <label class="checkbox-label">
+                <input type="checkbox" id="whiteBackgroundCheck" checked>
+                <span>White background</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="cropMaskCheck">
+                <span>Show crop mask</span>
+              </label>
+              <button id="exportSvgBtn" class="export-btn">Export SVG</button>
+              <div id="exportStatus" class="export-status"></div>
+            </div>
+          </div>
+
+          <!-- Metadata Section -->
+          <div class="export-section">
+            <div class="collapseable-header" onclick="toggleCollapse('metadataContent')">
+              <h3 style="font-size: 0.85em; font-weight: bold; color: #333; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">Metadata</h3>
+              <span class="collapse-icon" id="metadataContent-icon">▼</span>
+            </div>
+            <div id="metadataContent" class="collapseable-content">
+              <div id="metadata" class="metadata-grid" style="gap: 4px; margin-top: 6px;"></div>
+            </div>
           </div>
         </div>
 

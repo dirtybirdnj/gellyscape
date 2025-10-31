@@ -9,6 +9,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // PDF processing
   processPDF: (filePath) => ipcRenderer.invoke('pdf:process', filePath),
+  onPDFProgress: (callback) => {
+    const subscription = (event, progress) => callback(progress);
+    ipcRenderer.on('pdf:progress', subscription);
+    // Return unsubscribe function
+    return () => ipcRenderer.removeListener('pdf:progress', subscription);
+  },
 
   // Export operations
   exportRaster: (data) => ipcRenderer.invoke('export:raster', data),

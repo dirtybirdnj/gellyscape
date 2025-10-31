@@ -753,7 +753,8 @@ class PDFContentParser {
         font: this.currentFont,
         fontSize: this.currentFontSize,
         fillColor: this.graphicsState.fillColor,
-        ctm: { ...this.graphicsState.ctm }
+        ctm: { ...this.graphicsState.ctm },
+        layer: this.currentLayer // Add layer information
       });
     }
   }
@@ -780,7 +781,8 @@ class PDFContentParser {
             font: this.currentFont,
             fontSize: this.currentFontSize,
             fillColor: this.graphicsState.fillColor,
-            ctm: { ...this.graphicsState.ctm }
+            ctm: { ...this.graphicsState.ctm },
+            layer: this.currentLayer // Add layer information
           });
         }
       }

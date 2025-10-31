@@ -11,12 +11,31 @@ class PDFProcessor {
     this.pdfDoc = null;
     this.metadata = {};
     this.layers = [];
+    this.progressCallback = null;
+  }
+
+  setProgressCallback(callback) {
+    this.progressCallback = callback;
+  }
+
+  reportProgress(operation, detail, progress = null) {
+    if (this.progressCallback) {
+      this.progressCallback({
+        operation,
+        detail,
+        progress
+      });
+    }
   }
 
   async process() {
     try {
+      this.reportProgress('Loading PDF', 'Reading file structure...');
+
       // Load PDF with pdf-lib for structure access
       this.pdfDoc = await PDFDocument.load(this.buffer);
+
+      this.reportProgress('Parsing Metadata', 'Analyzing PDF properties...');
 
       // Parse PDF with pdf-parse for metadata
       const pdfData = await pdfParse(this.buffer);
@@ -24,16 +43,25 @@ class PDFProcessor {
       // Extract metadata
       await this.extractMetadata(pdfData);
 
+      const pageCount = this.pdfDoc.getPageCount();
+      this.reportProgress('Extracting Layers', `Found ${pageCount} page${pageCount !== 1 ? 's' : ''}. Identifying layers...`);
+
       // Identify and extract layers
       await this.identifyLayers();
+
+      this.reportProgress('Processing Raster Data', 'Extracting raster layers...');
 
       // Extract raster data
       const rasterExtractor = new RasterExtractor(this.pdfDoc, this.buffer);
       const rasterLayers = await rasterExtractor.extract();
 
+      this.reportProgress('Processing Vector Data', 'Extracting vector annotations...');
+
       // Extract vector data using annotation extractor
       const vectorExtractor = new VectorExtractor(this.pdfDoc, this.buffer);
       const vectorLayers = await vectorExtractor.extract();
+
+      this.reportProgress('Extracting Content Paths', 'Parsing content streams (this may take a while)...');
 
       // Extract vector paths from content streams
       const contentPaths = await this.extractContentPaths();
@@ -295,6 +323,7 @@ class PDFProcessor {
 
   async extractContentPaths() {
     const allPaths = [];
+    const allTextObjects = [];
 
     try {
       const pages = this.pdfDoc.getPages();
@@ -304,6 +333,12 @@ class PDFProcessor {
 
       for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
         console.log(`--- Page ${pageIndex + 1}/${pages.length} ---`);
+
+        this.reportProgress(
+          'Processing Page Content',
+          `Page ${pageIndex + 1} of ${pages.length}`,
+          { current: pageIndex + 1, total: pages.length }
+        );
 
         const page = pages[pageIndex];
         const pageDict = page.node.dict;
@@ -490,7 +525,7 @@ class PDFProcessor {
             const parser = new PDFContentParser({ layerMap: mcToLayerMap });
             const {paths, textObjects} = parser.parseContentStream(contentData);
 
-            console.log(`    ✓ Found ${paths.length} paths`);
+            console.log(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
             if (paths.length > 0) {
               const firstPath = paths[0];
               const subpathCount = firstPath.subpaths?.length || 0;
@@ -507,6 +542,12 @@ class PDFProcessor {
               .filter(path => path !== null); // Remove paths with no subpaths
 
             allPaths.push(...convertedPaths);
+
+            // Add page number to text objects and collect them
+            textObjects.forEach(textObj => {
+              textObj.page = pageIndex;
+            });
+            allTextObjects.push(...textObjects);
           } catch (streamError) {
             console.error(`    ❌ Error:`, streamError.message);
             console.error(streamError.stack);
@@ -526,10 +567,32 @@ class PDFProcessor {
         pathsByPage[path.page].push(path);
       });
 
+      console.log(`\nTotal text objects extracted: ${allTextObjects.length}`);
+
+      // Group text objects by layer
+      const textObjectsByLayer = {};
+      allTextObjects.forEach(textObj => {
+        const layerName = textObj.layer || 'Text (No Layer)';
+        if (!textObjectsByLayer[layerName]) {
+          textObjectsByLayer[layerName] = [];
+        }
+        textObjectsByLayer[layerName].push(textObj);
+      });
+
+      const textLayerNames = Object.keys(textObjectsByLayer);
+      console.log(`Text organized into ${textLayerNames.length} layers:`, textLayerNames);
+
+      this.reportProgress(
+        'Finalizing',
+        `Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects`
+      );
+
       return {
         paths: allPaths,
         pathsByPage,
-        statistics: this.generatePathStatistics(allPaths)
+        statistics: this.generatePathStatistics(allPaths),
+        textObjects: allTextObjects,
+        textObjectsByLayer // Add grouped text objects
       };
 
     } catch (error) {
@@ -538,6 +601,8 @@ class PDFProcessor {
         paths: [],
         pathsByPage: {},
         statistics: {},
+        textObjects: [],
+        textObjectsByLayer: {},
         error: error.message
       };
     }

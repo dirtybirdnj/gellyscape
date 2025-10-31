@@ -70,6 +70,12 @@ ipcMain.handle('pdf:process', async (event, filePath) => {
       };
     }
 
+    // Report initial progress
+    event.sender.send('pdf:progress', {
+      operation: 'Validating File',
+      detail: 'Reading PDF file...'
+    });
+
     // Read the file
     const fileBuffer = await fs.readFile(filePath);
 
@@ -85,7 +91,19 @@ ipcMain.handle('pdf:process', async (event, filePath) => {
 
     // Process the PDF
     const processor = new PDFProcessor(fileBuffer);
+
+    // Set up progress callback to forward progress to renderer
+    processor.setProgressCallback((progress) => {
+      event.sender.send('pdf:progress', progress);
+    });
+
     const result = await processor.process();
+
+    // Send completion progress
+    event.sender.send('pdf:progress', {
+      operation: 'Complete',
+      detail: 'Processing finished successfully!'
+    });
 
     return {
       success: true,
