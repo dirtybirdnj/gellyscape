@@ -287,10 +287,21 @@ class PDFContentParser {
   }
 
   opLineTo(operands) {
-    if (operands.length < 2 || !this.currentPath) return;
+    if (operands.length < 2) return;
 
     const x = parseFloat(operands[0]);
     const y = parseFloat(operands[1]);
+
+    // If no current path, create one with implicit moveto to (0,0)
+    if (!this.currentPath) {
+      this.currentPath = this.createPath();
+      this.currentPath.subpaths.push({
+        segments: [],
+        closed: false,
+        startPoint: { x: 0, y: 0 }
+      });
+      this.currentPath.currentPoint = { x: 0, y: 0 };
+    }
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
@@ -304,7 +315,7 @@ class PDFContentParser {
   }
 
   opCurveTo(operands) {
-    if (operands.length < 6 || !this.currentPath) return;
+    if (operands.length < 6) return;
 
     const x1 = parseFloat(operands[0]);
     const y1 = parseFloat(operands[1]);
@@ -312,6 +323,17 @@ class PDFContentParser {
     const y2 = parseFloat(operands[3]);
     const x3 = parseFloat(operands[4]);
     const y3 = parseFloat(operands[5]);
+
+    // If no current path, create one with implicit moveto to (0,0)
+    if (!this.currentPath) {
+      this.currentPath = this.createPath();
+      this.currentPath.subpaths.push({
+        segments: [],
+        closed: false,
+        startPoint: { x: 0, y: 0 }
+      });
+      this.currentPath.currentPoint = { x: 0, y: 0 };
+    }
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
@@ -327,7 +349,18 @@ class PDFContentParser {
   }
 
   opCurveToV(operands) {
-    if (operands.length < 4 || !this.currentPath) return;
+    if (operands.length < 4) return;
+
+    // If no current path, create one with implicit moveto to (0,0)
+    if (!this.currentPath) {
+      this.currentPath = this.createPath();
+      this.currentPath.subpaths.push({
+        segments: [],
+        closed: false,
+        startPoint: { x: 0, y: 0 }
+      });
+      this.currentPath.currentPoint = { x: 0, y: 0 };
+    }
 
     const cp = this.currentPath.currentPoint;
     const x2 = parseFloat(operands[0]);
@@ -349,7 +382,18 @@ class PDFContentParser {
   }
 
   opCurveToY(operands) {
-    if (operands.length < 4 || !this.currentPath) return;
+    if (operands.length < 4) return;
+
+    // If no current path, create one with implicit moveto to (0,0)
+    if (!this.currentPath) {
+      this.currentPath = this.createPath();
+      this.currentPath.subpaths.push({
+        segments: [],
+        closed: false,
+        startPoint: { x: 0, y: 0 }
+      });
+      this.currentPath.currentPoint = { x: 0, y: 0 };
+    }
 
     const x1 = parseFloat(operands[0]);
     const y1 = parseFloat(operands[1]);

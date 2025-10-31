@@ -47,8 +47,7 @@ ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'PDF Files', extensions: ['pdf'] },
-      { name: 'All Files', extensions: ['*'] }
+      { name: 'PDF Files', extensions: ['pdf'] }
     ]
   });
 
@@ -62,9 +61,30 @@ ipcMain.handle('dialog:openFile', async () => {
 // Process PDF file
 ipcMain.handle('pdf:process', async (event, filePath) => {
   try {
-    const fileBuffer = await fs.readFile(filePath);
-    const processor = new PDFProcessor(fileBuffer);
+    // Validate file extension
+    const fileExtension = path.extname(filePath).toLowerCase();
+    if (fileExtension !== '.pdf') {
+      return {
+        success: false,
+        error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported. Please select a PDF file to process.`
+      };
+    }
 
+    // Read the file
+    const fileBuffer = await fs.readFile(filePath);
+
+    // Verify PDF magic bytes (PDF files start with "%PDF-")
+    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
+    if (fileBuffer.length < pdfMagicBytes.length ||
+        !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
+      return {
+        success: false,
+        error: `File does not appear to be a valid PDF. The file may be corrupted or is not a PDF file.`
+      };
+    }
+
+    // Process the PDF
+    const processor = new PDFProcessor(fileBuffer);
     const result = await processor.process();
 
     return {
