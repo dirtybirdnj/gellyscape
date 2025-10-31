@@ -56,6 +56,7 @@ temp/
 output/
 test-svg-output.svg
 test-svg-conversion.json
+test-output.txt
 
 # Debug logs
 npm-debug.log*
