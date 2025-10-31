@@ -1019,3 +1019,6 @@ function toggleCollapse(contentId) {
     icon.classList.toggle('collapsed');
   }
 }
+
+// Make toggleCollapse available globally for inline onclick handlers
+window.toggleCollapse = toggleCollapse;
