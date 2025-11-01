@@ -294,110 +294,73 @@ function displayLayerControls() {
     return;
   }
 
-  // Define metadata layer names (these contain both vector and text data)
-  const metadataLayerNames = [
-    'Map Elements',
-    'Projection and Grids',
-    'Road Names and Shields',
-    'Geographic Names',
-    'Structures'
-  ];
-
-  // Separate layers into three categories
-  const vectorLayers = [];
-  const metadataLayers = [];
-  const textLayers = [];
-
-  allLayers.forEach(layerName => {
-    if (layerName.startsWith('📝 ')) {
-      // Pure text layer
-      const baseName = layerName.substring(2).trim(); // Remove '📝 ' prefix
-      // Check if this is actually a metadata layer that contains text
-      if (metadataLayerNames.includes(baseName)) {
-        metadataLayers.push(layerName);
-      } else {
-        textLayers.push(layerName);
-      }
-    } else {
-      // Vector layer
-      if (metadataLayerNames.includes(layerName)) {
-        metadataLayers.push(layerName);
-      } else {
-        vectorLayers.push(layerName);
-      }
-    }
+  // Separate vector layers and text layers
+  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 ')).sort((a, b) => a.localeCompare(b));
+  const textLayers = allLayers.filter(l => l.startsWith('📝 ')).sort((a, b) => {
+    const aName = a.substring(2); // Remove emoji prefix
+    const bName = b.substring(2);
+    return aName.localeCompare(bName);
   });
 
-  // Populate vector layers section
-  if (vectorLayers.length === 0) {
-    layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No vector layers found</div>';
-  } else {
-    vectorLayers.forEach(layerName => {
+  // Populate vector layers first
+  vectorLayers.forEach(layerName => {
+    const layerItem = createLayerControlItem(layerName);
+    layerControlsDiv.appendChild(layerItem);
+  });
+
+  // Add text layers in a collapsible section if any exist
+  if (textLayers.length > 0) {
+    // Create collapsible header
+    const textSection = document.createElement('div');
+    textSection.style.cssText = 'margin-top: 12px; border-top: 1px solid #e0e4ff; padding-top: 8px;';
+
+    const textHeader = document.createElement('div');
+    textHeader.className = 'collapseable-header';
+    textHeader.style.cssText = 'cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: #f0f2ff; border-radius: 3px; margin-bottom: 6px;';
+
+    const textHeaderTitle = document.createElement('span');
+    textHeaderTitle.style.cssText = 'font-size: 0.85em; font-weight: 600; color: #555;';
+    textHeaderTitle.textContent = `Text Overlays (${textLayers.length})`;
+
+    const textHeaderIcon = document.createElement('span');
+    textHeaderIcon.className = 'collapse-icon collapsed';
+    textHeaderIcon.textContent = '▼';
+
+    textHeader.appendChild(textHeaderTitle);
+    textHeader.appendChild(textHeaderIcon);
+
+    // Create collapsible content container
+    const textContent = document.createElement('div');
+    textContent.className = 'collapseable-content collapsed';
+    textContent.style.maxHeight = '0';
+    textContent.style.opacity = '0';
+
+    // Populate text layers
+    textLayers.forEach(layerName => {
       const layerItem = createLayerControlItem(layerName);
-      layerControlsDiv.appendChild(layerItem);
+      textContent.appendChild(layerItem);
     });
+
+    // Toggle collapse on click
+    textHeader.addEventListener('click', () => {
+      const isCollapsed = textContent.classList.contains('collapsed');
+      if (isCollapsed) {
+        textContent.classList.remove('collapsed');
+        textHeaderIcon.classList.remove('collapsed');
+        textContent.style.maxHeight = '2000px';
+        textContent.style.opacity = '1';
+      } else {
+        textContent.classList.add('collapsed');
+        textHeaderIcon.classList.add('collapsed');
+        textContent.style.maxHeight = '0';
+        textContent.style.opacity = '0';
+      }
+    });
+
+    textSection.appendChild(textHeader);
+    textSection.appendChild(textContent);
+    layerControlsDiv.appendChild(textSection);
   }
-
-  // Add Vector Metadata section if there are metadata layers
-  if (metadataLayers.length > 0) {
-    // Add separator
-    const separator = document.createElement('div');
-    separator.style.cssText = 'margin-top: 16px; padding-top: 12px; border-top: 2px solid #e0e4ff;';
-    layerControlsDiv.appendChild(separator);
-
-    // Create header with heading and buttons
-    const headerDiv = document.createElement('div');
-    headerDiv.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
-
-    const heading = document.createElement('h4');
-    heading.textContent = 'Vector Metadata';
-    heading.style.cssText = 'font-size: 0.9em; font-weight: 600; color: #555; margin: 0;';
-    headerDiv.appendChild(heading);
-
-    // Create All/None buttons container
-    const buttonsDiv = document.createElement('div');
-    buttonsDiv.style.cssText = 'display: flex; gap: 4px;';
-
-    const selectAllMetadataBtn = document.createElement('button');
-    selectAllMetadataBtn.textContent = 'All';
-    selectAllMetadataBtn.className = 'layer-toggle-btn';
-    selectAllMetadataBtn.title = 'Select All Metadata';
-    selectAllMetadataBtn.addEventListener('click', () => {
-      metadataLayers.forEach(layerName => {
-        enabledLayers.add(layerName);
-        const checkbox = document.getElementById(`layer-${layerName}`);
-        if (checkbox) checkbox.checked = true;
-      });
-      generateMapPreview();
-    });
-
-    const deselectAllMetadataBtn = document.createElement('button');
-    deselectAllMetadataBtn.textContent = 'None';
-    deselectAllMetadataBtn.className = 'layer-toggle-btn';
-    deselectAllMetadataBtn.title = 'Deselect All Metadata';
-    deselectAllMetadataBtn.addEventListener('click', () => {
-      metadataLayers.forEach(layerName => {
-        enabledLayers.delete(layerName);
-        const checkbox = document.getElementById(`layer-${layerName}`);
-        if (checkbox) checkbox.checked = false;
-      });
-      generateMapPreview();
-    });
-
-    buttonsDiv.appendChild(selectAllMetadataBtn);
-    buttonsDiv.appendChild(deselectAllMetadataBtn);
-    headerDiv.appendChild(buttonsDiv);
-
-    layerControlsDiv.appendChild(headerDiv);
-
-    metadataLayers.forEach(layerName => {
-      const layerItem = createLayerControlItem(layerName);
-      layerControlsDiv.appendChild(layerItem);
-    });
-  }
-
-  // Text layers section removed - Overlay tab now shows map preview
-  // Removed: text layers population code
 }
 
 function createLayerControlItem(layerName) {
@@ -424,9 +387,16 @@ function createLayerControlItem(layerName) {
 
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
-  checkbox.id = `layer-${layerName}`;
+  // Use a safe ID by replacing special characters and spaces
+  const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+  checkbox.id = `layer-${safeId}`;
   checkbox.checked = enabledLayers.has(layerName);
+
+  // DEBUG: Log checkbox creation
+  console.log(`Creating checkbox for layer: "${layerName}" with ID: "layer-${safeId}"`);
+
   checkbox.addEventListener('change', () => {
+    console.log(`Checkbox changed for: "${layerName}" (checked: ${checkbox.checked})`);
     if (checkbox.checked) {
       enabledLayers.add(layerName);
     } else {
@@ -437,7 +407,7 @@ function createLayerControlItem(layerName) {
 
   const label = document.createElement('label');
   label.className = 'checkbox-label';
-  label.htmlFor = `layer-${layerName}`;
+  label.htmlFor = `layer-${safeId}`;
   label.style.cssText = 'flex: 1; min-width: 0;';
 
   const span = document.createElement('span');
@@ -477,35 +447,16 @@ function createLayerControlItem(layerName) {
 }
 
 function selectAllLayers() {
-  // Define metadata layer names
-  const metadataLayerNames = [
-    'Map Elements',
-    'Projection and Grids',
-    'Road Names and Shields',
-    'Geographic Names',
-    'Structures'
-  ];
-
-  // Enable only pure vector layers (not text layers or metadata)
+  // Enable all layers
   allLayers.forEach(layer => {
-    if (!layer.startsWith('📝 ')) {
-      // Check if it's not a metadata layer
-      const baseName = layer.startsWith('📝 ') ? layer.substring(2).trim() : layer;
-      if (!metadataLayerNames.includes(baseName)) {
-        enabledLayers.add(layer);
-      }
-    }
+    enabledLayers.add(layer);
   });
 
-  // Update checkboxes for pure vector layers
+  // Update all checkboxes
   allLayers.forEach(layerName => {
-    if (!layerName.startsWith('📝 ')) {
-      const baseName = layerName.startsWith('📝 ') ? layerName.substring(2).trim() : layerName;
-      if (!metadataLayerNames.includes(baseName)) {
-        const checkbox = document.getElementById(`layer-${layerName}`);
-        if (checkbox) checkbox.checked = true;
-      }
-    }
+    const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const checkbox = document.getElementById(`layer-${safeId}`);
+    if (checkbox) checkbox.checked = true;
   });
 
   // Regenerate preview
@@ -513,35 +464,16 @@ function selectAllLayers() {
 }
 
 function deselectAllLayers() {
-  // Define metadata layer names
-  const metadataLayerNames = [
-    'Map Elements',
-    'Projection and Grids',
-    'Road Names and Shields',
-    'Geographic Names',
-    'Structures'
-  ];
-
-  // Disable only pure vector layers (not text layers or metadata)
+  // Disable all layers
   allLayers.forEach(layer => {
-    if (!layer.startsWith('📝 ')) {
-      // Check if it's not a metadata layer
-      const baseName = layer.startsWith('📝 ') ? layer.substring(2).trim() : layer;
-      if (!metadataLayerNames.includes(baseName)) {
-        enabledLayers.delete(layer);
-      }
-    }
+    enabledLayers.delete(layer);
   });
 
-  // Update checkboxes for pure vector layers
+  // Update all checkboxes
   allLayers.forEach(layerName => {
-    if (!layerName.startsWith('📝 ')) {
-      const baseName = layerName.startsWith('📝 ') ? layerName.substring(2).trim() : layerName;
-      if (!metadataLayerNames.includes(baseName)) {
-        const checkbox = document.getElementById(`layer-${layerName}`);
-        if (checkbox) checkbox.checked = false;
-      }
-    }
+    const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const checkbox = document.getElementById(`layer-${safeId}`);
+    if (checkbox) checkbox.checked = false;
   });
 
   // Regenerate preview
@@ -936,7 +868,8 @@ function generateSVG(isExport) {
 
       const fill = path.fill ? `rgb(${path.fillColor.join(',')})` : 'none';
       const stroke = path.stroke ? `rgb(${path.strokeColor.join(',')})` : 'none';
-      const strokeWidth = path.strokeWidth || 1;
+      //  Use lineWidth from PDF path, or default to 1 for visibility
+      const strokeWidth = path.lineWidth !== undefined ? path.lineWidth : (path.strokeWidth || 1);
 
       svg += `    <path d="${pathData}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>\n`;
     });
