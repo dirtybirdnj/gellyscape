@@ -330,19 +330,17 @@ function updateTabCounts() {
   // Count enabled vector layers
   const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
   const enabledVectorCount = vectorLayers.filter(l => enabledLayers.has(l)).length;
-  const totalVectorCount = vectorLayers.length;
 
   // Count enabled overlay layers
   const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
   const enabledOverlayCount = overlayLayers.filter(l => enabledLayers.has(l)).length;
-  const totalOverlayCount = overlayLayers.length;
 
-  // Update badges
+  // Update badges - show only selected count
   if (vectorCountBadge) {
-    vectorCountBadge.textContent = `(${enabledVectorCount}/${totalVectorCount})`;
+    vectorCountBadge.textContent = `(${enabledVectorCount})`;
   }
   if (overlayCountBadge) {
-    overlayCountBadge.textContent = `(${enabledOverlayCount}/${totalOverlayCount})`;
+    overlayCountBadge.textContent = `(${enabledOverlayCount})`;
   }
 }
 
