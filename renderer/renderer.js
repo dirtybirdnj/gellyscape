@@ -31,14 +31,17 @@ const OVERLAY_LAYER_PATTERNS = [
 
 // Helper function to check if a layer should be categorized as overlay
 function isOverlayLayer(layerName) {
+  // Extract base layer name if it's a color sublayer
+  const baseName = layerName.includes('::') ? layerName.split('::')[0] : layerName;
+
   // Text layers (with emoji prefix) are always overlays
-  if (layerName.startsWith('📝 ')) {
+  if (baseName.startsWith('📝 ')) {
     return true;
   }
 
   // Check if layer name matches any overlay patterns
   return OVERLAY_LAYER_PATTERNS.some(pattern =>
-    layerName.toLowerCase().includes(pattern.toLowerCase())
+    baseName.toLowerCase().includes(pattern.toLowerCase())
   );
 }
 
@@ -242,28 +245,28 @@ function extractLayersFromData(data) {
 
   // Extract layer names and colors from contentPaths if available
   if (data.contentPaths && data.contentPaths.paths) {
-    const layerNames = new Set();
-    const layerColors = {}; // Map of layer name to Set of colors
+    const layerColorSublayers = new Set(); // Store "Layer::color" format
+    const layerColors = {}; // Map of base layer name to Set of colors
 
     data.contentPaths.paths.forEach(path => {
       if (path.layer) {
-        layerNames.add(path.layer);
-
         // Collect colors for this layer
         if (!layerColors[path.layer]) {
           layerColors[path.layer] = new Set();
         }
 
-        // Add fill color if present
-        if (path.fill && path.fillColor) {
-          const colorStr = `rgb(${path.fillColor.join(',')})`;
-          layerColors[path.layer].add(colorStr);
+        // Determine the color for this path (prefer stroke, fall back to fill)
+        let colorStr = null;
+        if (path.stroke && path.strokeColor) {
+          colorStr = `rgb(${path.strokeColor.join(',')})`;
+        } else if (path.fill && path.fillColor) {
+          colorStr = `rgb(${path.fillColor.join(',')})`;
         }
 
-        // Add stroke color if present
-        if (path.stroke && path.strokeColor) {
-          const colorStr = `rgb(${path.strokeColor.join(',')})`;
+        if (colorStr) {
           layerColors[path.layer].add(colorStr);
+          // Create sublayer: "LayerName::rgb(r,g,b)"
+          layerColorSublayers.add(`${path.layer}::${colorStr}`);
         }
       }
     });
@@ -273,7 +276,6 @@ function extractLayersFromData(data) {
       Object.keys(data.contentPaths.textObjectsByLayer).forEach(textLayer => {
         // Prefix text layers to distinguish them from path layers
         const textLayerName = `📝 ${textLayer}`;
-        layerNames.add(textLayerName);
 
         // Collect text colors (from fillColor)
         if (!layerColors[textLayerName]) {
@@ -284,34 +286,33 @@ function extractLayersFromData(data) {
           if (textObj.fillColor && Array.isArray(textObj.fillColor)) {
             const colorStr = `rgb(${textObj.fillColor.join(',')})`;
             layerColors[textLayerName].add(colorStr);
+            layerColorSublayers.add(`${textLayerName}::${colorStr}`);
           }
         });
       });
     }
 
-    // If no layer info on paths, try to get from metadata
-    if (layerNames.size === 0 && data.layerNames) {
-      Object.values(data.layerNames).forEach(name => layerNames.add(name));
+    // If no layer info on paths, create a default "All Paths" layer
+    if (layerColorSublayers.size === 0) {
+      layerColorSublayers.add('All Paths::rgb(0,0,0)');
     }
 
-    // If still no layers, create a default "All Paths" layer
-    if (layerNames.size === 0) {
-      layerNames.add('All Paths');
-    }
-
-    allLayers = Array.from(layerNames).sort();
+    allLayers = Array.from(layerColorSublayers).sort();
 
     // Store color information in a global object for display
     window.layerColorInfo = {};
-    allLayers.forEach(layer => {
-      window.layerColorInfo[layer] = Array.from(layerColors[layer] || []);
+    window.layerBaseNames = {}; // Map from sublayer to base layer name
+    allLayers.forEach(sublayer => {
+      const [baseName, colorStr] = sublayer.split('::');
+      window.layerBaseNames[sublayer] = baseName;
+      window.layerColorInfo[sublayer] = [colorStr];
     });
 
     // Enable all layers by default
     allLayers.forEach(layer => enabledLayers.add(layer));
   }
 
-  console.log('Extracted layers:', allLayers);
+  console.log('Extracted color sublayers:', allLayers);
   console.log('Layer colors:', window.layerColorInfo);
 }
 
@@ -365,11 +366,26 @@ function createLayerControlItem(layerName) {
   layerItem.className = 'layer-item';
   layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
-  // Calculate path count
+  // Parse layerName to extract base name and color
+  const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+
+  // Calculate path count for this specific color sublayer
   let pathCount = 0;
   if (currentPDFData && currentPDFData.contentPaths) {
     const paths = currentPDFData.contentPaths.paths;
-    pathCount = paths.filter(p => p.layer === layerName).length;
+    pathCount = paths.filter(p => {
+      if (p.layer !== baseName) return false;
+      if (!colorStr) return true;  // No color filter, count all
+
+      // Check if path color matches
+      let pathColor = null;
+      if (p.stroke && p.strokeColor) {
+        pathColor = `rgb(${p.strokeColor.join(',')})`;
+      } else if (p.fill && p.fillColor) {
+        pathColor = `rgb(${p.fillColor.join(',')})`;
+      }
+      return pathColor === colorStr;
+    }).length;
   }
 
   // Path count badge on the left (outside the checkbox container)
@@ -409,7 +425,8 @@ function createLayerControlItem(layerName) {
   label.style.cssText = 'flex: 1; min-width: 0;';
 
   const span = document.createElement('span');
-  span.textContent = layerName;
+  // Display just the base layer name (without color suffix)
+  span.textContent = baseName;
 
   label.appendChild(checkbox);
   label.appendChild(span);
@@ -766,14 +783,23 @@ function generateSVG(isExport) {
   const paths = currentPDFData.contentPaths.paths;
   const stats = currentPDFData.contentPaths.statistics || {};
 
-  // Filter paths by enabled layers
+  // Filter paths by enabled color sublayers
   const filteredPaths = paths.filter(path => {
-    // If layers exist, only include paths from enabled layers
-    if (allLayers.length > 0 && path.layer) {
-      return enabledLayers.has(path.layer);
+    if (!path.layer) return false;
+
+    // Determine the color for this path (prefer stroke, fall back to fill)
+    let pathColor = null;
+    if (path.stroke && path.strokeColor) {
+      pathColor = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      pathColor = `rgb(${path.fillColor.join(',')})`;
     }
-    // If no layers or path has no layer, only include if all layers are enabled
-    return allLayers.length === 0 || enabledLayers.size === allLayers.length;
+
+    if (!pathColor) return false;
+
+    // Check if the color sublayer is enabled
+    const sublayerName = `${path.layer}::${pathColor}`;
+    return enabledLayers.has(sublayerName);
   });
 
   if (filteredPaths.length === 0) {
@@ -900,17 +926,25 @@ function generateSVG(isExport) {
     cropMaskSvg += `  </g>\n`;
   }
 
-  // Group paths by layer
+  // Group paths by color sublayer
   const pathsByLayer = {};
   filteredPaths.forEach(path => {
-    const layerName = path.layer || 'default';
-    if (!pathsByLayer[layerName]) {
-      pathsByLayer[layerName] = [];
+    // Determine the color for this path
+    let pathColor = null;
+    if (path.stroke && path.strokeColor) {
+      pathColor = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      pathColor = `rgb(${path.fillColor.join(',')})`;
     }
-    pathsByLayer[layerName].push(path);
+
+    const sublayerName = `${path.layer}::${pathColor}`;
+    if (!pathsByLayer[sublayerName]) {
+      pathsByLayer[sublayerName] = [];
+    }
+    pathsByLayer[sublayerName].push(path);
   });
 
-  // Generate path elements grouped by layer
+  // Generate path elements grouped by color sublayer
   // Render in REVERSE order of allLayers array - layers at top of UI list render last (appear on top)
   // This ensures proper z-ordering where later layers in the UI appear above earlier ones
   const layersToRender = allLayers.slice().reverse().filter(layer => pathsByLayer[layer]);
