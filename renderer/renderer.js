@@ -17,9 +17,8 @@ const uploadSection = document.querySelector('.upload-section');
 const statusDiv = document.getElementById('status');
 const resultsDiv = document.getElementById('results');
 const metadataDiv = document.getElementById('metadata');
-// Removed: const textDataDiv = document.getElementById('textData');
 const layerControlsDiv = document.getElementById('layerControls');
-// Removed: const textLayerControlsDiv = document.getElementById('textLayerControls');
+const textLayerControlsDiv = document.getElementById('textLayerControls');
 const mapPreviewDiv = document.getElementById('mapPreview');
 const mapStatsDiv = document.getElementById('mapStats');
 const exportSvgBtn = document.getElementById('exportSvgBtn');
@@ -34,8 +33,8 @@ const layerDetailsSection = document.getElementById('layerDetailsSection');
 const layerDetailsDiv = document.getElementById('layerDetails');
 const selectAllLayersBtn = document.getElementById('selectAllLayersBtn');
 const deselectAllLayersBtn = document.getElementById('deselectAllLayersBtn');
-// Removed: const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
-// Removed: const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
+const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
+const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
 const toolbarDiv = document.getElementById('toolbar');
 const exportLayersListDiv = document.getElementById('exportLayersList');
 const fileInfoDiv = document.getElementById('fileInfo');
@@ -51,8 +50,8 @@ zoomOutBtn.addEventListener('click', () => adjustZoom(-0.1));
 zoomResetBtn.addEventListener('click', resetZoom);
 selectAllLayersBtn.addEventListener('click', selectAllLayers);
 deselectAllLayersBtn.addEventListener('click', deselectAllLayers);
-// Removed: selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
-// Removed: deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
+selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
+deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
 
 // Panning event listeners
 mapPreviewDiv.addEventListener('mousedown', startPan);
@@ -287,10 +286,11 @@ function extractLayersFromData(data) {
 
 function displayLayerControls() {
   layerControlsDiv.innerHTML = '';
-  // Removed: textLayerControlsDiv.innerHTML = '';
+  textLayerControlsDiv.innerHTML = '';
 
   if (allLayers.length === 0) {
     layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No layers found</div>';
+    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No text layers found</div>';
     return;
   }
 
@@ -302,64 +302,24 @@ function displayLayerControls() {
     return aName.localeCompare(bName);
   });
 
-  // Populate vector layers first
-  vectorLayers.forEach(layerName => {
-    const layerItem = createLayerControlItem(layerName);
-    layerControlsDiv.appendChild(layerItem);
-  });
+  // Populate vector layers in Vector Data tab
+  if (vectorLayers.length > 0) {
+    vectorLayers.forEach(layerName => {
+      const layerItem = createLayerControlItem(layerName);
+      layerControlsDiv.appendChild(layerItem);
+    });
+  } else {
+    layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No vector layers found</div>';
+  }
 
-  // Add text layers in a collapsible section if any exist
+  // Populate text layers in Overlay tab
   if (textLayers.length > 0) {
-    // Create collapsible header
-    const textSection = document.createElement('div');
-    textSection.style.cssText = 'margin-top: 12px; border-top: 1px solid #e0e4ff; padding-top: 8px;';
-
-    const textHeader = document.createElement('div');
-    textHeader.className = 'collapseable-header';
-    textHeader.style.cssText = 'cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: #f0f2ff; border-radius: 3px; margin-bottom: 6px;';
-
-    const textHeaderTitle = document.createElement('span');
-    textHeaderTitle.style.cssText = 'font-size: 0.85em; font-weight: 600; color: #555;';
-    textHeaderTitle.textContent = `Text Overlays (${textLayers.length})`;
-
-    const textHeaderIcon = document.createElement('span');
-    textHeaderIcon.className = 'collapse-icon collapsed';
-    textHeaderIcon.textContent = '▼';
-
-    textHeader.appendChild(textHeaderTitle);
-    textHeader.appendChild(textHeaderIcon);
-
-    // Create collapsible content container
-    const textContent = document.createElement('div');
-    textContent.className = 'collapseable-content collapsed';
-    textContent.style.maxHeight = '0';
-    textContent.style.opacity = '0';
-
-    // Populate text layers
     textLayers.forEach(layerName => {
       const layerItem = createLayerControlItem(layerName);
-      textContent.appendChild(layerItem);
+      textLayerControlsDiv.appendChild(layerItem);
     });
-
-    // Toggle collapse on click
-    textHeader.addEventListener('click', () => {
-      const isCollapsed = textContent.classList.contains('collapsed');
-      if (isCollapsed) {
-        textContent.classList.remove('collapsed');
-        textHeaderIcon.classList.remove('collapsed');
-        textContent.style.maxHeight = '2000px';
-        textContent.style.opacity = '1';
-      } else {
-        textContent.classList.add('collapsed');
-        textHeaderIcon.classList.add('collapsed');
-        textContent.style.maxHeight = '0';
-        textContent.style.opacity = '0';
-      }
-    });
-
-    textSection.appendChild(textHeader);
-    textSection.appendChild(textContent);
-    layerControlsDiv.appendChild(textSection);
+  } else {
+    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No text layers found</div>';
   }
 }
 
@@ -403,6 +363,7 @@ function createLayerControlItem(layerName) {
       enabledLayers.delete(layerName);
     }
     generateMapPreview();
+    updateExportLayersList();
   });
 
   const label = document.createElement('label');
@@ -447,42 +408,80 @@ function createLayerControlItem(layerName) {
 }
 
 function selectAllLayers() {
-  // Enable all layers
-  allLayers.forEach(layer => {
+  // Enable only vector layers (non-text)
+  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 '));
+  vectorLayers.forEach(layer => {
     enabledLayers.add(layer);
   });
 
-  // Update all checkboxes
-  allLayers.forEach(layerName => {
+  // Update all vector layer checkboxes
+  vectorLayers.forEach(layerName => {
     const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
     const checkbox = document.getElementById(`layer-${safeId}`);
     if (checkbox) checkbox.checked = true;
   });
 
-  // Regenerate preview
+  // Regenerate preview and export list
   generateMapPreview();
+  updateExportLayersList();
 }
 
 function deselectAllLayers() {
-  // Disable all layers
-  allLayers.forEach(layer => {
+  // Disable only vector layers (non-text)
+  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 '));
+  vectorLayers.forEach(layer => {
     enabledLayers.delete(layer);
   });
 
-  // Update all checkboxes
-  allLayers.forEach(layerName => {
+  // Update all vector layer checkboxes
+  vectorLayers.forEach(layerName => {
     const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
     const checkbox = document.getElementById(`layer-${safeId}`);
     if (checkbox) checkbox.checked = false;
   });
 
-  // Regenerate preview
+  // Regenerate preview and export list
   generateMapPreview();
+  updateExportLayersList();
 }
 
-// FUNCTIONS REMOVED - Text layer control buttons no longer exist
-// function selectAllTextLayers() { ... }
-// function deselectAllTextLayers() { ... }
+function selectAllTextLayers() {
+  // Enable only text layers
+  const textLayers = allLayers.filter(l => l.startsWith('📝 '));
+  textLayers.forEach(layer => {
+    enabledLayers.add(layer);
+  });
+
+  // Update all text layer checkboxes
+  textLayers.forEach(layerName => {
+    const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const checkbox = document.getElementById(`layer-${safeId}`);
+    if (checkbox) checkbox.checked = true;
+  });
+
+  // Regenerate preview and export list
+  generateMapPreview();
+  updateExportLayersList();
+}
+
+function deselectAllTextLayers() {
+  // Disable only text layers
+  const textLayers = allLayers.filter(l => l.startsWith('📝 '));
+  textLayers.forEach(layer => {
+    enabledLayers.delete(layer);
+  });
+
+  // Update all text layer checkboxes
+  textLayers.forEach(layerName => {
+    const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const checkbox = document.getElementById(`layer-${safeId}`);
+    if (checkbox) checkbox.checked = false;
+  });
+
+  // Regenerate preview and export list
+  generateMapPreview();
+  updateExportLayersList();
+}
 
 function displayLayerDetails() {
   if (!currentPDFData || !currentPDFData.contentPaths) {
@@ -553,21 +552,59 @@ function updateExportLayersList() {
     });
   }
 
-  // Sort enabled layers alphabetically
+  // Separate vector and text layers
   const sortedEnabledLayers = Array.from(enabledLayers).sort();
+  const vectorLayers = sortedEnabledLayers.filter(l => !l.startsWith('📝 '));
+  const textLayers = sortedEnabledLayers.filter(l => l.startsWith('📝 '));
 
-  // Build the list HTML
-  const listItems = sortedEnabledLayers.map(layerName => {
-    const pathCount = layerPathCounts[layerName] || 0;
-    return `
-      <div style="padding: 8px 12px; background: #f5f7ff; border-radius: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-        <div style="font-size: 0.85em; color: #333; font-weight: 500;">${layerName}</div>
-        <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount} paths</div>
-      </div>
-    `;
-  }).join('');
+  // Build the list HTML with sections
+  let html = '';
 
-  exportLayersListDiv.innerHTML = listItems;
+  if (vectorLayers.length > 0) {
+    html += '<div style="margin-bottom: 16px;"><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Vector Layers</h5>';
+    vectorLayers.forEach(layerName => {
+      const pathCount = layerPathCounts[layerName] || 0;
+      const colors = window.layerColorInfo?.[layerName] || [];
+      const swatchesHTML = colors.slice(0, 3).map(color =>
+        `<span style="display: inline-block; width: 10px; height: 10px; background: ${color}; border: 1px solid #ccc; border-radius: 2px; margin-left: 2px;"></span>`
+      ).join('');
+
+      html += `
+        <div style="padding: 6px 10px; background: #f5f7ff; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.85em; color: #333; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+            <span>${layerName}</span>
+            ${swatchesHTML}
+          </div>
+          <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  if (textLayers.length > 0) {
+    html += '<div><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Text Overlays</h5>';
+    textLayers.forEach(layerName => {
+      const pathCount = layerPathCounts[layerName] || 0;
+      const colors = window.layerColorInfo?.[layerName] || [];
+      const swatchesHTML = colors.slice(0, 3).map(color =>
+        `<span style="display: inline-block; width: 10px; height: 10px; background: ${color}; border: 1px solid #ccc; border-radius: 2px; margin-left: 2px;"></span>`
+      ).join('');
+
+      html += `
+        <div style="padding: 6px 10px; background: #f5f7ff; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.85em; color: #333; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+            <span>${layerName}</span>
+            ${swatchesHTML}
+          </div>
+          <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  exportLayersListDiv.innerHTML = html;
 }
 
 function generateMapPreview() {
