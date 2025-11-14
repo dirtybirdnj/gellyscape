@@ -11,6 +11,37 @@ let startPanX = 0;
 let startPanY = 0;
 let cachedBounds = null; // Cache the initial bounds to prevent jumping
 
+// Layer categorization - defines which layers are plottable vector data vs overlays/annotations
+// Plottable layers: Physical map features suitable for pen plotting
+// Overlay layers: Text, labels, shields, grids, and other annotation elements
+const OVERLAY_LAYER_PATTERNS = [
+  'Boundaries',
+  'County or Equivalent',
+  'Geographic Names',
+  'Map Elements',
+  'Projection and Grids',
+  'Road Names and Shields',
+  'Structures',
+  'Airports',
+  'Barcode',
+  'Department of Defense',
+  'Federal Administrated Lands',
+  'Images'
+];
+
+// Helper function to check if a layer should be categorized as overlay
+function isOverlayLayer(layerName) {
+  // Text layers (with emoji prefix) are always overlays
+  if (layerName.startsWith('📝 ')) {
+    return true;
+  }
+
+  // Check if layer name matches any overlay patterns
+  return OVERLAY_LAYER_PATTERNS.some(pattern =>
+    layerName.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
 // DOM elements
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadSection = document.querySelector('.upload-section');
@@ -290,36 +321,42 @@ function displayLayerControls() {
 
   if (allLayers.length === 0) {
     layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No layers found</div>';
-    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No text layers found</div>';
+    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No overlay layers found</div>';
     return;
   }
 
-  // Separate vector layers and text layers
-  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 ')).sort((a, b) => a.localeCompare(b));
-  const textLayers = allLayers.filter(l => l.startsWith('📝 ')).sort((a, b) => {
-    const aName = a.substring(2); // Remove emoji prefix
-    const bName = b.substring(2);
-    return aName.localeCompare(bName);
+  // Separate plottable vector layers from overlay/annotation layers
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l)).sort((a, b) => a.localeCompare(b));
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l)).sort((a, b) => {
+    // Sort text layers (with emoji) separately
+    const aIsText = a.startsWith('📝 ');
+    const bIsText = b.startsWith('📝 ');
+    if (aIsText && bIsText) {
+      return a.substring(2).localeCompare(b.substring(2));
+    }
+    if (aIsText) return 1; // Text layers at bottom
+    if (bIsText) return -1;
+    return a.localeCompare(b);
   });
 
-  // Populate vector layers in Vector Data tab
+  // Populate plottable vector layers in Vector Data tab
   if (vectorLayers.length > 0) {
     vectorLayers.forEach(layerName => {
       const layerItem = createLayerControlItem(layerName);
       layerControlsDiv.appendChild(layerItem);
     });
   } else {
-    layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No vector layers found</div>';
+    layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No plottable layers found</div>';
   }
 
-  // Populate text layers in Overlay tab
-  if (textLayers.length > 0) {
-    textLayers.forEach(layerName => {
+  // Populate overlay/annotation layers in Overlay tab
+  if (overlayLayers.length > 0) {
+    overlayLayers.forEach(layerName => {
       const layerItem = createLayerControlItem(layerName);
       textLayerControlsDiv.appendChild(layerItem);
     });
   } else {
-    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No text layers found</div>';
+    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No overlay layers found</div>';
   }
 }
 
@@ -408,8 +445,8 @@ function createLayerControlItem(layerName) {
 }
 
 function selectAllLayers() {
-  // Enable only vector layers (non-text)
-  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 '));
+  // Enable only plottable vector layers (not overlays)
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
   vectorLayers.forEach(layer => {
     enabledLayers.add(layer);
   });
@@ -427,8 +464,8 @@ function selectAllLayers() {
 }
 
 function deselectAllLayers() {
-  // Disable only vector layers (non-text)
-  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 '));
+  // Disable only plottable vector layers (not overlays)
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
   vectorLayers.forEach(layer => {
     enabledLayers.delete(layer);
   });
@@ -446,14 +483,14 @@ function deselectAllLayers() {
 }
 
 function selectAllTextLayers() {
-  // Enable only text layers
-  const textLayers = allLayers.filter(l => l.startsWith('📝 '));
-  textLayers.forEach(layer => {
+  // Enable all overlay layers (text, annotations, etc.)
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
+  overlayLayers.forEach(layer => {
     enabledLayers.add(layer);
   });
 
-  // Update all text layer checkboxes
-  textLayers.forEach(layerName => {
+  // Update all overlay layer checkboxes
+  overlayLayers.forEach(layerName => {
     const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
     const checkbox = document.getElementById(`layer-${safeId}`);
     if (checkbox) checkbox.checked = true;
@@ -465,14 +502,14 @@ function selectAllTextLayers() {
 }
 
 function deselectAllTextLayers() {
-  // Disable only text layers
-  const textLayers = allLayers.filter(l => l.startsWith('📝 '));
-  textLayers.forEach(layer => {
+  // Disable all overlay layers (text, annotations, etc.)
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
+  overlayLayers.forEach(layer => {
     enabledLayers.delete(layer);
   });
 
-  // Update all text layer checkboxes
-  textLayers.forEach(layerName => {
+  // Update all overlay layer checkboxes
+  overlayLayers.forEach(layerName => {
     const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
     const checkbox = document.getElementById(`layer-${safeId}`);
     if (checkbox) checkbox.checked = false;
@@ -552,10 +589,10 @@ function updateExportLayersList() {
     });
   }
 
-  // Separate vector and text layers
+  // Separate plottable vector layers from overlay layers
   const sortedEnabledLayers = Array.from(enabledLayers).sort();
-  const vectorLayers = sortedEnabledLayers.filter(l => !l.startsWith('📝 '));
-  const textLayers = sortedEnabledLayers.filter(l => l.startsWith('📝 '));
+  const vectorLayers = sortedEnabledLayers.filter(l => !isOverlayLayer(l));
+  const overlayLayers = sortedEnabledLayers.filter(l => isOverlayLayer(l));
 
   // Build the list HTML with sections
   let html = '';
@@ -582,9 +619,9 @@ function updateExportLayersList() {
     html += '</div>';
   }
 
-  if (textLayers.length > 0) {
-    html += '<div><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Text Overlays</h5>';
-    textLayers.forEach(layerName => {
+  if (overlayLayers.length > 0) {
+    html += '<div><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Overlays</h5>';
+    overlayLayers.forEach(layerName => {
       const pathCount = layerPathCounts[layerName] || 0;
       const colors = window.layerColorInfo?.[layerName] || [];
       const swatchesHTML = colors.slice(0, 3).map(color =>
