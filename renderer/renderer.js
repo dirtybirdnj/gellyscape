@@ -29,6 +29,66 @@ const OVERLAY_LAYER_PATTERNS = [
   'Images'
 ];
 
+// Smart layer naming - infer feature types from colors
+// Maps base layer names + color patterns to descriptive names
+const LAYER_COLOR_DESCRIPTORS = {
+  'Contours': {
+    'rgb(153,102,51)': 'Contours (Index - Light)',
+    'rgb(102,51,0)': 'Contours (Index - Medium)',
+    'rgb(51,25,0)': 'Contours (Index - Dark)',
+    'rgb(153,76,0)': 'Contours (Intermediate)',
+    'rgb(139,90,43)': 'Contours (Supplemental)'
+  },
+  'Hydrography': {
+    'rgb(0,0,0)': 'Hydrography (Outlines)',
+    'rgb(151,219,242)': 'Hydrography (Lakes - Light)',
+    'rgb(190,232,255)': 'Hydrography (Lakes - Pale)',
+    'rgb(0,92,230)': 'Hydrography (Rivers - Blue)',
+    'rgb(0,112,255)': 'Hydrography (Streams)',
+    'rgb(0,77,168)': 'Hydrography (Water Bodies)',
+    'rgb(153,204,255)': 'Hydrography (Wetlands)',
+    'rgb(204,235,197)': 'Hydrography (Marshes)'
+  },
+  'Transportation': {
+    'rgb(0,0,0)': 'Roads (Primary - Black)',
+    'rgb(255,0,0)': 'Roads (Highways - Red)',
+    'rgb(209,110,0)': 'Roads (Secondary - Orange)',
+    'rgb(204,204,204)': 'Roads (Local - Gray)',
+    'rgb(156,156,156)': 'Roads (Minor - Light Gray)',
+    'rgb(255,211,127)': 'Roads (Unimproved - Tan)'
+  },
+  'Road Features': {
+    'rgb(0,0,0)': 'Roads (Primary)',
+    'rgb(255,0,0)': 'Roads (Highways)',
+    'rgb(209,110,0)': 'Roads (Secondary)',
+    'rgb(204,204,204)': 'Roads (Local)',
+    'rgb(156,156,156)': 'Roads (Minor)'
+  },
+  'Trails': {
+    'rgb(0,0,0)': 'Trails (Primary)',
+    'rgb(255,0,0)': 'Trails (Marked)',
+    'rgb(139,69,19)': 'Trails (Unpaved)',
+    'rgb(204,102,0)': 'Trails (Secondary)'
+  },
+  'Woodland': {
+    'rgb(228,246,210)': 'Woodland (Forest - Light)',
+    'rgb(209,255,189)': 'Woodland (Forest - Pale)',
+    'rgb(180,215,155)': 'Woodland (Forest - Medium)',
+    'rgb(137,205,102)': 'Woodland (Dense Forest)'
+  }
+};
+
+// Helper function to get descriptive layer name
+function getDescriptiveLayerName(baseName, colorStr) {
+  // Check if we have a custom descriptor for this base name + color
+  if (LAYER_COLOR_DESCRIPTORS[baseName] && LAYER_COLOR_DESCRIPTORS[baseName][colorStr]) {
+    return LAYER_COLOR_DESCRIPTORS[baseName][colorStr];
+  }
+
+  // Fall back to base name
+  return baseName;
+}
+
 // Helper function to check if a layer should be categorized as overlay
 function isOverlayLayer(layerName) {
   // Extract base layer name if it's a color sublayer
@@ -454,8 +514,9 @@ function createLayerControlItem(layerName) {
   label.style.cssText = 'flex: 1; min-width: 0;';
 
   const span = document.createElement('span');
-  // Display just the base layer name (without color suffix)
-  span.textContent = baseName;
+  // Display descriptive name based on base layer + color
+  const displayName = getDescriptiveLayerName(baseName, colorStr);
+  span.textContent = displayName;
 
   label.appendChild(checkbox);
   label.appendChild(span);
@@ -650,6 +711,10 @@ function updateExportLayersList() {
   if (vectorLayers.length > 0) {
     html += '<div style="margin-bottom: 16px;"><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Vector Layers</h5>';
     vectorLayers.forEach(layerName => {
+      // Parse sublayer format for descriptive naming
+      const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+      const displayName = getDescriptiveLayerName(baseName, colorStr);
+
       const pathCount = layerPathCounts[layerName] || 0;
       const colors = window.layerColorInfo?.[layerName] || [];
       const swatchesHTML = colors.slice(0, 3).map(color =>
@@ -659,7 +724,7 @@ function updateExportLayersList() {
       html += `
         <div style="padding: 6px 10px; background: #f5f7ff; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
           <div style="font-size: 0.85em; color: #333; font-weight: 500; display: flex; align-items: center; gap: 6px;">
-            <span>${layerName}</span>
+            <span>${displayName}</span>
             ${swatchesHTML}
           </div>
           <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount}</div>
@@ -672,6 +737,10 @@ function updateExportLayersList() {
   if (overlayLayers.length > 0) {
     html += '<div><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Overlays</h5>';
     overlayLayers.forEach(layerName => {
+      // Parse sublayer format for descriptive naming
+      const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+      const displayName = getDescriptiveLayerName(baseName, colorStr);
+
       const pathCount = layerPathCounts[layerName] || 0;
       const colors = window.layerColorInfo?.[layerName] || [];
       const swatchesHTML = colors.slice(0, 3).map(color =>
@@ -681,7 +750,7 @@ function updateExportLayersList() {
       html += `
         <div style="padding: 6px 10px; background: #f5f7ff; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
           <div style="font-size: 0.85em; color: #333; font-weight: 500; display: flex; align-items: center; gap: 6px;">
-            <span>${layerName}</span>
+            <span>${displayName}</span>
             ${swatchesHTML}
           </div>
           <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount}</div>
