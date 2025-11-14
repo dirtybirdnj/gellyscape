@@ -874,7 +874,18 @@ function generateSVG(isExport) {
   });
 
   // Generate path elements grouped by layer
-  Object.keys(pathsByLayer).sort().forEach(layerName => {
+  // Render in REVERSE order of allLayers array - layers at top of UI list render last (appear on top)
+  // This ensures proper z-ordering where later layers in the UI appear above earlier ones
+  const layersToRender = allLayers.slice().reverse().filter(layer => pathsByLayer[layer]);
+
+  // Add any layers not in allLayers (shouldn't happen, but failsafe)
+  Object.keys(pathsByLayer).forEach(layerName => {
+    if (!layersToRender.includes(layerName)) {
+      layersToRender.push(layerName);
+    }
+  });
+
+  layersToRender.forEach(layerName => {
     svg += `  <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
 
     pathsByLayer[layerName].forEach((path, index) => {
