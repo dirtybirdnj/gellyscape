@@ -20,13 +20,19 @@ const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const zoomResetBtn = document.getElementById('zoomResetBtn');
 const zoomLevelSpan = document.getElementById('zoomLevel');
+const debugExportBtn = document.getElementById('debugExportBtn');
+const allLayersBtn = document.getElementById('allLayersBtn');
+const noneLayersBtn = document.getElementById('noneLayersBtn');
 
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
 exportSvgBtn.addEventListener('click', handleExportSVG);
+debugExportBtn.addEventListener('click', handleDebugExport);
 zoomInBtn.addEventListener('click', () => adjustZoom(0.1));
 zoomOutBtn.addEventListener('click', () => adjustZoom(-0.1));
 zoomResetBtn.addEventListener('click', resetZoom);
+allLayersBtn.addEventListener('click', enableAllLayers);
+noneLayersBtn.addEventListener('click', disableAllLayers);
 
 async function handleUpload() {
   try {
@@ -135,6 +141,29 @@ function displayLayerControls() {
     return;
   }
 
+  // Calculate color swatches for each layer
+  const layerColors = {};
+  if (currentPDFData && currentPDFData.contentPaths) {
+    currentPDFData.contentPaths.paths.forEach(path => {
+      const layerName = path.layer;
+      if (!layerName) return; // Skip paths without layer assignment
+
+      if (!layerColors[layerName]) {
+        layerColors[layerName] = new Set();
+      }
+
+      if (path.fill && path.fillColor) {
+        layerColors[layerName].add(`rgb(${path.fillColor.join(',')})`);
+      }
+      if (path.stroke && path.strokeColor) {
+        // Show actual stroke color (including black if that's what the layer uses)
+        layerColors[layerName].add(`rgb(${path.strokeColor.join(',')})`);
+      }
+    });
+  }
+
+  console.log('Layer colors:', layerColors);
+
   allLayers.forEach(layerName => {
     const layerItem = document.createElement('div');
     layerItem.className = 'layer-item';
@@ -155,11 +184,24 @@ function displayLayerControls() {
     const label = document.createElement('label');
     label.className = 'checkbox-label';
     label.htmlFor = `layer-${layerName}`;
+    label.appendChild(checkbox);
+
+    // Add color swatches specific to this layer
+    const colors = layerColors[layerName] ? Array.from(layerColors[layerName]).slice(0, 5) : [];
+    if (colors.length > 0) {
+      const swatchContainer = document.createElement('span');
+      swatchContainer.style.cssText = 'display: inline-flex; gap: 2px; margin-right: 6px;';
+      colors.forEach(color => {
+        const swatch = document.createElement('span');
+        swatch.style.cssText = `display: inline-block; width: 12px; height: 12px; border: 1px solid #ccc; background: ${color}; border-radius: 2px;`;
+        swatchContainer.appendChild(swatch);
+      });
+      label.appendChild(swatchContainer);
+    }
 
     const span = document.createElement('span');
     span.textContent = layerName;
 
-    label.appendChild(checkbox);
     label.appendChild(span);
     layerItem.appendChild(label);
     layerControlsDiv.appendChild(layerItem);
@@ -171,6 +213,19 @@ function generateMapPreview() {
     mapPreviewDiv.innerHTML = '<div style="color: #999;">No map data available</div>';
     return;
   }
+
+  // Debug: Export raw path data to console for analysis
+  console.log('\n🔍 DEBUG: Exporting raw path data for comparison');
+  console.log('Copy this to compare with working SVG:');
+  const debugPaths = currentPDFData.contentPaths.paths.slice(0, 5).map(p => ({
+    operations: p.operations,
+    fill: p.fill,
+    fillColor: p.fillColor,
+    stroke: p.stroke,
+    strokeColor: p.strokeColor,
+    layer: p.layer
+  }));
+  console.log(JSON.stringify(debugPaths, null, 2));
 
   const svg = generateSVG(false); // false = no export, just preview
   mapPreviewDiv.innerHTML = svg;
@@ -231,9 +286,72 @@ async function handleExportSVG() {
   }
 }
 
+async function handleDebugExport() {
+  try {
+    if (!currentPDFData || !currentPDFData.contentPaths) {
+      alert('No map data available for debug export');
+      return;
+    }
+
+    const fileName = currentFilePath ? currentFilePath.split('/').pop().replace('.pdf', '') : 'debug';
+
+    // Get save path
+    const result = await window.electronAPI.exportVector({
+      defaultPath: `${fileName}_debug.json`
+    });
+
+    if (!result.success) {
+      if (!result.canceled) {
+        alert(`Export failed: ${result.error}`);
+      }
+      return;
+    }
+
+    // Create comprehensive debug data
+    const debugData = {
+      metadata: currentPDFData.metadata,
+      layers: Array.from(enabledLayers),
+      allLayerNames: allLayers,
+      pathCount: currentPDFData.contentPaths.paths.length,
+      statistics: currentPDFData.contentPaths.statistics,
+      samplePaths: currentPDFData.contentPaths.paths.slice(0, 10).map(p => ({
+        operations: p.operations,
+        fill: p.fill,
+        fillColor: p.fillColor,
+        stroke: p.stroke,
+        strokeColor: p.strokeColor,
+        strokeWidth: p.strokeWidth,
+        layer: p.layer,
+        page: p.page
+      })),
+      layerNames: currentPDFData.layerNames
+    };
+
+    // Save file
+    const saveResult = await window.electronAPI.saveFile({
+      filePath: result.filePath,
+      content: JSON.stringify(debugData, null, 2)
+    });
+
+    if (saveResult.success) {
+      alert(`Debug data exported successfully to:\n${result.filePath}`);
+    } else {
+      alert(`Export failed: ${saveResult.error}`);
+    }
+
+  } catch (error) {
+    console.error('Error exporting debug data:', error);
+    alert(`Export error: ${error.message}`);
+  }
+}
+
 function generateSVG(isExport) {
   const paths = currentPDFData.contentPaths.paths;
   const stats = currentPDFData.contentPaths.statistics || {};
+
+  console.log('=== SVG GENERATION DEBUG ===');
+  console.log('Total paths:', paths.length);
+  console.log('Enabled layers:', Array.from(enabledLayers));
 
   // Filter paths by enabled layers
   const filteredPaths = paths.filter(path => {
@@ -241,9 +359,24 @@ function generateSVG(isExport) {
     return enabledLayers.has(path.layer);
   });
 
+  console.log('Filtered paths:', filteredPaths.length);
+
   if (filteredPaths.length === 0) {
     return '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><text x="200" y="150" text-anchor="middle" fill="#999">No paths to display</text></svg>';
   }
+
+  // Sample first few paths for debugging
+  console.log('Sample paths (first 3):');
+  filteredPaths.slice(0, 3).forEach((path, i) => {
+    console.log(`Path ${i}:`, {
+      layer: path.layer,
+      page: path.page,
+      operationCount: path.operations?.length,
+      fill: path.fill,
+      stroke: path.stroke,
+      firstOps: path.operations?.slice(0, 5)
+    });
+  });
 
   // Calculate bounding box
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -292,19 +425,30 @@ function generateSVG(isExport) {
   const height = maxY - minY;
   const padding = 10;
 
-  // Generate SVG header
+  console.log('Bounding box:', { minX, minY, maxX, maxY });
+  console.log('Dimensions:', { width, height });
+
+  // Calculate center point for flipping
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  // Generate SVG header with viewBox
   const viewBox = `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
+  console.log('ViewBox:', viewBox);
+  console.log('Center point:', { centerX, centerY });
+
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(width)}" height="${Math.round(height)}" viewBox="${viewBox}">
+  <g transform="scale(1, -1) translate(0, ${-2 * centerY})">
 `;
 
   // Add white background if requested (export only)
   if (isExport && whiteBackgroundCheck.checked) {
-    svg += `  <rect x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${height + padding * 2}" fill="white"/>\n`;
+    svg += `    <rect x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${height + padding * 2}" fill="white"/>\n`;
   }
 
   // Add title
-  svg += `  <title>GeoPDF Export - ${enabledLayers.size} layers</title>\n`;
+  svg += `    <title>GeoPDF Export - ${enabledLayers.size} layers</title>\n`;
 
   // Group paths by layer
   const pathsByLayer = {};
@@ -318,7 +462,7 @@ function generateSVG(isExport) {
 
   // Generate path elements grouped by layer
   Object.keys(pathsByLayer).sort().forEach(layerName => {
-    svg += `  <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
+    svg += `    <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
 
     pathsByLayer[layerName].forEach((path, index) => {
       const pathData = path.operations.map(op => {
@@ -339,16 +483,24 @@ function generateSVG(isExport) {
       }).join(' ');
 
       const fill = path.fill ? `rgb(${path.fillColor.join(',')})` : 'none';
-      const stroke = path.stroke ? `rgb(${path.strokeColor.join(',')})` : 'none';
+
+      // Fix stroke colors - contour lines should be brown, not black
+      // If stroke is black (0,0,0), replace with default contour brown
+      let strokeColor = path.strokeColor;
+      if (path.stroke && strokeColor[0] === 0 && strokeColor[1] === 0 && strokeColor[2] === 0) {
+        // Default brown contour color from the map statistics
+        strokeColor = [179, 134, 89];
+      }
+      const stroke = path.stroke ? `rgb(${strokeColor.join(',')})` : 'none';
       const strokeWidth = path.strokeWidth || 1;
 
-      svg += `    <path d="${pathData}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>\n`;
+      svg += `      <path d="${pathData}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>\n`;
     });
 
-    svg += `  </g>\n`;
+    svg += `    </g>\n`;
   });
 
-  svg += '</svg>';
+  svg += `  </g>\n</svg>`;
   return svg;
 }
 
@@ -449,6 +601,28 @@ function adjustZoom(delta) {
 function resetZoom() {
   currentZoom = 1.0;
   updateZoomDisplay();
+}
+
+function enableAllLayers() {
+  enabledLayers.clear();
+  allLayers.forEach(layer => enabledLayers.add(layer));
+  updateLayerCheckboxes();
+  generateMapPreview();
+}
+
+function disableAllLayers() {
+  enabledLayers.clear();
+  updateLayerCheckboxes();
+  generateMapPreview();
+}
+
+function updateLayerCheckboxes() {
+  allLayers.forEach(layerName => {
+    const checkbox = document.getElementById(`layer-${layerName}`);
+    if (checkbox) {
+      checkbox.checked = enabledLayers.has(layerName);
+    }
+  });
 }
 
 function updateZoomDisplay() {

@@ -31,22 +31,6 @@
       overflow-x: hidden;
     }
 
-    header {
-      text-align: center;
-      margin-bottom: 15px;
-    }
-
-    h1 {
-      color: #333;
-      font-size: 1.8em;
-      margin-bottom: 5px;
-    }
-
-    .subtitle {
-      color: #666;
-      font-size: 0.9em;
-    }
-
     .upload-section {
       border: 2px dashed #667eea;
       border-radius: 8px;
@@ -390,11 +374,6 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>GellyScape</h1>
-      <p class="subtitle">GeoPDF Layer Extraction & Processing</p>
-    </header>
-
     <div class="upload-section">
       <h2 style="font-size: 1.2em; margin-bottom: 8px;">Upload GeoPDF File</h2>
       <p style="margin: 8px 0 12px 0; color: #666; font-size: 0.9em;">Select a GeoPDF file to extract raster and vector layers</p>
@@ -414,6 +393,10 @@
         <!-- Layer Controls Panel -->
         <div class="layer-controls-panel">
           <h3 class="layer-controls-title">Layers</h3>
+          <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+            <button id="allLayersBtn" class="export-btn" style="font-size: 0.8em; padding: 6px 12px;">All</button>
+            <button id="noneLayersBtn" class="export-btn" style="font-size: 0.8em; padding: 6px 12px;">None</button>
+          </div>
           <div id="layerControls" class="layer-controls"></div>
 
           <div class="export-section">
@@ -422,6 +405,7 @@
               <span>White background</span>
             </label>
             <button id="exportSvgBtn" class="export-btn">Export SVG</button>
+            <button id="debugExportBtn" class="export-btn" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);">Export Debug Data</button>
           </div>
         </div>
 

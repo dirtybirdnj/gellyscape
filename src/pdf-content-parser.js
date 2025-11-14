@@ -15,6 +15,10 @@ class PDFContentParser {
     this.stateStack = [];
     this.debugCount = 0; // For debugging
 
+    // Layer tracking
+    this.currentLayer = null;
+    this.layerStack = [];
+
     // Text state
     this.inTextObject = false;
     this.currentFont = null;
@@ -26,6 +30,7 @@ class PDFContentParser {
     this.pdfContext = options.pdfContext;
     this.fontDict = options.fontDict;
     this.fontCMaps = {}; // Cache for parsed ToUnicode CMaps
+    this.layerNames = options.layerNames || {}; // OCG ID to name mapping
   }
 
   /**
@@ -43,6 +48,22 @@ class PDFContentParser {
 
       // Process tokens and build paths
       this.processTokens(tokens);
+
+      // Debug: Log first few paths with coordinate info
+      if (this.paths.length > 0) {
+        console.log(`\n📊 Parsed ${this.paths.length} paths from content stream`);
+        const samplePath = this.paths[0];
+        if (samplePath.subpaths && samplePath.subpaths.length > 0) {
+          const firstSubpath = samplePath.subpaths[0];
+          console.log('First path sample:', {
+            operation: samplePath.operation,
+            subpathCount: samplePath.subpaths.length,
+            startPoint: firstSubpath.startPoint,
+            firstSegments: firstSubpath.segments?.slice(0, 3),
+            style: samplePath.style
+          });
+        }
+      }
 
       return {
         paths: this.paths,
@@ -185,6 +206,14 @@ class PDFContentParser {
         this.opConcatMatrix(operands);
         break;
 
+      // Marked content (layer) operators
+      case 'BDC': // begin marked content with properties
+        this.opBeginMarkedContent(operands);
+        break;
+      case 'EMC': // end marked content
+        this.opEndMarkedContent();
+        break;
+
       // Color operators
       case 'g': // set gray (fill)
         this.opSetGray(operands, 'fill');
@@ -264,13 +293,28 @@ class PDFContentParser {
 
   // Path construction operators
 
+  /**
+   * Apply CTM transformation to a point
+   * CTM: [a b c d e f] where new_x = a*x + c*y + e, new_y = b*x + d*y + f
+   */
+  transformPoint(x, y) {
+    const ctm = this.graphicsState.ctm;
+    return {
+      x: ctm.a * x + ctm.c * y + ctm.e,
+      y: ctm.b * x + ctm.d * y + ctm.f
+    };
+  }
+
   opMoveTo(operands) {
     if (operands.length < 2) {
       return;
     }
 
-    const x = parseFloat(operands[0]);
-    const y = parseFloat(operands[1]);
+    const rawX = parseFloat(operands[0]);
+    const rawY = parseFloat(operands[1]);
+
+    // Apply CTM transformation
+    const {x, y} = this.transformPoint(rawX, rawY);
 
     // Start new subpath
     if (!this.currentPath) {
@@ -289,18 +333,22 @@ class PDFContentParser {
   opLineTo(operands) {
     if (operands.length < 2) return;
 
-    const x = parseFloat(operands[0]);
-    const y = parseFloat(operands[1]);
+    const rawX = parseFloat(operands[0]);
+    const rawY = parseFloat(operands[1]);
+
+    // Apply CTM transformation
+    const {x, y} = this.transformPoint(rawX, rawY);
 
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
+      const transformedOrigin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: { x: 0, y: 0 }
+        startPoint: transformedOrigin
       });
-      this.currentPath.currentPoint = { x: 0, y: 0 };
+      this.currentPath.currentPoint = transformedOrigin;
     }
 
     const currentSubpath = this.getCurrentSubpath();
@@ -317,35 +365,34 @@ class PDFContentParser {
   opCurveTo(operands) {
     if (operands.length < 6) return;
 
-    const x1 = parseFloat(operands[0]);
-    const y1 = parseFloat(operands[1]);
-    const x2 = parseFloat(operands[2]);
-    const y2 = parseFloat(operands[3]);
-    const x3 = parseFloat(operands[4]);
-    const y3 = parseFloat(operands[5]);
+    // Apply CTM transformation to all points
+    const cp1 = this.transformPoint(parseFloat(operands[0]), parseFloat(operands[1]));
+    const cp2 = this.transformPoint(parseFloat(operands[2]), parseFloat(operands[3]));
+    const pt = this.transformPoint(parseFloat(operands[4]), parseFloat(operands[5]));
 
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
+      const transformedOrigin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: { x: 0, y: 0 }
+        startPoint: transformedOrigin
       });
-      this.currentPath.currentPoint = { x: 0, y: 0 };
+      this.currentPath.currentPoint = transformedOrigin;
     }
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
       currentSubpath.segments.push({
         type: 'cubic',
-        cp1: { x: x1, y: y1 },
-        cp2: { x: x2, y: y2 },
-        point: { x: x3, y: y3 }
+        cp1: cp1,
+        cp2: cp2,
+        point: pt
       });
     }
 
-    this.currentPath.currentPoint = { x: x3, y: y3 };
+    this.currentPath.currentPoint = pt;
   }
 
   opCurveToV(operands) {
@@ -430,6 +477,12 @@ class PDFContentParser {
     const width = parseFloat(operands[2]);
     const height = parseFloat(operands[3]);
 
+    // Apply CTM transformation to all four corners
+    const p1 = this.transformPoint(x, y);
+    const p2 = this.transformPoint(x + width, y);
+    const p3 = this.transformPoint(x + width, y + height);
+    const p4 = this.transformPoint(x, y + height);
+
     if (!this.currentPath) {
       this.currentPath = this.createPath();
     }
@@ -437,15 +490,15 @@ class PDFContentParser {
     // Create rectangle as closed path
     this.currentPath.subpaths.push({
       segments: [
-        { type: 'line', point: { x: x + width, y } },
-        { type: 'line', point: { x: x + width, y: y + height } },
-        { type: 'line', point: { x, y: y + height } }
+        { type: 'line', point: p2 },
+        { type: 'line', point: p3 },
+        { type: 'line', point: p4 }
       ],
       closed: true,
-      startPoint: { x, y }
+      startPoint: p1
     });
 
-    this.currentPath.currentPoint = { x, y };
+    this.currentPath.currentPoint = p1;
   }
 
   // Path painting operators
@@ -527,6 +580,43 @@ class PDFContentParser {
     }
   }
 
+  opBeginMarkedContent(operands) {
+    // BDC operator: tag properties
+    // operands[0] is the tag (e.g., /OC for Optional Content)
+    // operands[1] is the properties dictionary reference
+    if (operands.length >= 2) {
+      const tag = operands[0];
+      const properties = operands[1];
+
+      // Debug logging for layer tracking
+      if (this.debugCount < 5 && tag === '/OC') {
+        console.log(`BDC: tag=${tag}, properties=${properties}`);
+        console.log(`  Available layer names:`, Object.keys(this.layerNames).slice(0, 5));
+        console.log(`  Lookup result:`, this.layerNames[properties]);
+        this.debugCount++;
+      }
+
+      // If this is an OC (Optional Content / Layer) tag
+      if (tag === '/OC') {
+        // properties is an OCG reference - look up the layer name
+        const layerName = this.layerNames[properties];
+        if (layerName) {
+          this.layerStack.push(this.currentLayer);
+          this.currentLayer = layerName;
+        }
+      }
+    }
+  }
+
+  opEndMarkedContent() {
+    // EMC operator: end marked content
+    if (this.layerStack.length > 0) {
+      this.currentLayer = this.layerStack.pop();
+    } else {
+      this.currentLayer = null;
+    }
+  }
+
   opConcatMatrix(operands) {
     if (operands.length < 6) return;
 
@@ -592,6 +682,7 @@ class PDFContentParser {
       subpaths: [],
       currentPoint: null,
       operation: null,
+      layer: this.currentLayer, // Attach current layer
       style: {},
       transform: this.graphicsState.ctm
     };

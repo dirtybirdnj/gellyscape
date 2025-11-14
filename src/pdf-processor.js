@@ -166,7 +166,28 @@ class PDFProcessor {
 
         // Get the name of this layer
         const name = ocg.dict.get(PDFName.of('Name'));
-        const nameStr = name?.toString().replace(/[()]/g, '') || `Layer${i}`;
+        let nameStr;
+
+        // Check if it's a PDFString or PDFHexString that needs decoding
+        if (name?.decodeText) {
+          nameStr = name.decodeText();
+        } else {
+          nameStr = name?.toString().replace(/[()]/g, '') || `Layer${i}`;
+
+          // Decode UTF-16BE strings (they start with BOM: þÿ or \xFE\xFF)
+          if (nameStr.startsWith('\xFE\xFF') || nameStr.startsWith('þÿ')) {
+            try {
+              // Remove BOM and decode UTF-16BE
+              const hexStr = nameStr.slice(2).split('').map(c =>
+                c.charCodeAt(0).toString(16).padStart(2, '0')
+              ).join('');
+              const bytes = Buffer.from(hexStr, 'hex');
+              nameStr = bytes.toString('utf16le');
+            } catch (e) {
+              console.log(`  Warning: Could not decode UTF-16 layer name, using raw: ${nameStr}`);
+            }
+          }
+        }
 
         // Store mapping from OCG reference to name
         const ocgId = ocgRef.toString();
@@ -305,7 +326,7 @@ class PDFProcessor {
 
             // Parse the content stream
             console.log(`    📝 Parsing with PDFContentParser...`);
-            const parser = new PDFContentParser();
+            const parser = new PDFContentParser({ layerNames: this.layerNames || {} });
             const {paths, textObjects} = parser.parseContentStream(contentData);
 
             console.log(`    ✓ Found ${paths.length} paths`);
@@ -407,8 +428,13 @@ class PDFProcessor {
     });
 
     // Convert colors from hex to RGB arrays
-    const hexToRgb = (hex) => {
-      if (!hex || !hex.startsWith('#')) return [0, 0, 0];
+    // Default to brown contour color instead of black for missing stroke colors
+    const hexToRgb = (hex, isStroke = false) => {
+      if (!hex || !hex.startsWith('#')) {
+        // If stroke color is missing, use default brown contour color
+        // instead of black, as contour lines should be brown
+        return isStroke ? [179, 134, 89] : [0, 0, 0];
+      }
       const r = parseInt(hex.slice(1, 3), 16);
       const g = parseInt(hex.slice(3, 5), 16);
       const b = parseInt(hex.slice(5, 7), 16);
@@ -418,11 +444,12 @@ class PDFProcessor {
     return {
       operations,
       fill: path.operation === 'fill' || path.operation === 'fill-stroke',
-      fillColor: path.style.fill ? hexToRgb(path.style.fill) : [0, 0, 0],
+      fillColor: path.style.fill ? hexToRgb(path.style.fill, false) : [0, 0, 0],
       stroke: path.operation === 'stroke' || path.operation === 'fill-stroke',
-      strokeColor: path.style.stroke ? hexToRgb(path.style.stroke) : [0, 0, 0],
+      strokeColor: path.style.stroke ? hexToRgb(path.style.stroke, true) : hexToRgb(null, true),
       strokeWidth: path.style.strokeWidth || 1,
-      page: path.page
+      page: path.page,
+      layer: path.layer
     };
   }
 
