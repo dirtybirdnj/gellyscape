@@ -15,9 +15,10 @@ class PDFContentParser {
     this.stateStack = [];
     this.debugCount = 0; // For debugging
 
-    // Layer tracking
-    this.currentLayer = null;
-    this.layerStack = [];
+    // Marked content (layer) tracking
+    this.markedContentStack = []; // Stack of marked content tags
+    this.currentLayer = null; // Current layer name (resolved from /MC references)
+    this.layerMap = options.layerMap || {}; // Map from /MC0, /MC1, etc. to layer names
 
     // Text state
     this.inTextObject = false;
@@ -30,7 +31,7 @@ class PDFContentParser {
     this.pdfContext = options.pdfContext;
     this.fontDict = options.fontDict;
     this.fontCMaps = {}; // Cache for parsed ToUnicode CMaps
-    this.layerNames = options.layerNames || {}; // OCG ID to name mapping
+    this.fontDetails = {}; // Map of font references to actual font names
   }
 
   /**
@@ -49,29 +50,14 @@ class PDFContentParser {
       // Process tokens and build paths
       this.processTokens(tokens);
 
-      // Debug: Log first few paths with coordinate info
-      if (this.paths.length > 0) {
-        console.log(`\n📊 Parsed ${this.paths.length} paths from content stream`);
-        const samplePath = this.paths[0];
-        if (samplePath.subpaths && samplePath.subpaths.length > 0) {
-          const firstSubpath = samplePath.subpaths[0];
-          console.log('First path sample:', {
-            operation: samplePath.operation,
-            subpathCount: samplePath.subpaths.length,
-            startPoint: firstSubpath.startPoint,
-            firstSegments: firstSubpath.segments?.slice(0, 3),
-            style: samplePath.style
-          });
-        }
-      }
-
       return {
         paths: this.paths,
-        textObjects: this.textObjects
+        textObjects: this.textObjects,
+        fontDetails: this.fontDetails
       };
     } catch (error) {
       console.error('Error parsing content stream:', error);
-      return { paths: [], textObjects: [] };
+      return { paths: [], textObjects: [], fontDetails: {} };
     }
   }
 
@@ -150,6 +136,14 @@ class PDFContentParser {
         this.opRectangle(operands);
         break;
 
+      // Clipping path operators (ignore clipping, just end the path)
+      case 'W': // set clipping path (nonzero winding)
+      case 'W*': // set clipping path (even-odd)
+        // Clipping paths are used to crop/mask content
+        // We'll discard these paths and not include them in the output
+        this.opEndPathNoOutput();
+        break;
+
       // Path painting operators
       case 'S': // stroke
         this.opStroke();
@@ -204,14 +198,6 @@ class PDFContentParser {
         break;
       case 'cm': // concat matrix (transformation)
         this.opConcatMatrix(operands);
-        break;
-
-      // Marked content (layer) operators
-      case 'BDC': // begin marked content with properties
-        this.opBeginMarkedContent(operands);
-        break;
-      case 'EMC': // end marked content
-        this.opEndMarkedContent();
         break;
 
       // Color operators
@@ -284,6 +270,21 @@ class PDFContentParser {
         // Character spacing, word spacing, horizontal scaling, leading, render mode, rise
         break;
 
+      // Marked content operators (for layer tracking)
+      case 'BDC': // begin marked content sequence with properties
+        this.opBeginMarkedContent(operands);
+        break;
+      case 'BMC': // begin marked content sequence
+        this.opBeginMarkedContentSimple(operands);
+        break;
+      case 'EMC': // end marked content
+        this.opEndMarkedContent();
+        break;
+      case 'DP': // define marked content point with properties
+      case 'MP': // define marked content point
+        // These are point markers, not sequences - we don't need to track them
+        break;
+
       default:
         // Unknown or unsupported operator
         // console.log(`Unknown operator: ${operator}`);
@@ -293,28 +294,13 @@ class PDFContentParser {
 
   // Path construction operators
 
-  /**
-   * Apply CTM transformation to a point
-   * CTM: [a b c d e f] where new_x = a*x + c*y + e, new_y = b*x + d*y + f
-   */
-  transformPoint(x, y) {
-    const ctm = this.graphicsState.ctm;
-    return {
-      x: ctm.a * x + ctm.c * y + ctm.e,
-      y: ctm.b * x + ctm.d * y + ctm.f
-    };
-  }
-
   opMoveTo(operands) {
     if (operands.length < 2) {
       return;
     }
 
-    const rawX = parseFloat(operands[0]);
-    const rawY = parseFloat(operands[1]);
-
-    // Apply CTM transformation
-    const {x, y} = this.transformPoint(rawX, rawY);
+    const x = parseFloat(operands[0]);
+    const y = parseFloat(operands[1]);
 
     // Start new subpath
     if (!this.currentPath) {
@@ -333,22 +319,18 @@ class PDFContentParser {
   opLineTo(operands) {
     if (operands.length < 2) return;
 
-    const rawX = parseFloat(operands[0]);
-    const rawY = parseFloat(operands[1]);
-
-    // Apply CTM transformation
-    const {x, y} = this.transformPoint(rawX, rawY);
+    const x = parseFloat(operands[0]);
+    const y = parseFloat(operands[1]);
 
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
-      const transformedOrigin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: transformedOrigin
+        startPoint: { x: 0, y: 0 }
       });
-      this.currentPath.currentPoint = transformedOrigin;
+      this.currentPath.currentPoint = { x: 0, y: 0 };
     }
 
     const currentSubpath = this.getCurrentSubpath();
@@ -365,34 +347,35 @@ class PDFContentParser {
   opCurveTo(operands) {
     if (operands.length < 6) return;
 
-    // Apply CTM transformation to all points
-    const cp1 = this.transformPoint(parseFloat(operands[0]), parseFloat(operands[1]));
-    const cp2 = this.transformPoint(parseFloat(operands[2]), parseFloat(operands[3]));
-    const pt = this.transformPoint(parseFloat(operands[4]), parseFloat(operands[5]));
+    const x1 = parseFloat(operands[0]);
+    const y1 = parseFloat(operands[1]);
+    const x2 = parseFloat(operands[2]);
+    const y2 = parseFloat(operands[3]);
+    const x3 = parseFloat(operands[4]);
+    const y3 = parseFloat(operands[5]);
 
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
-      const transformedOrigin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: transformedOrigin
+        startPoint: { x: 0, y: 0 }
       });
-      this.currentPath.currentPoint = transformedOrigin;
+      this.currentPath.currentPoint = { x: 0, y: 0 };
     }
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
       currentSubpath.segments.push({
         type: 'cubic',
-        cp1: cp1,
-        cp2: cp2,
-        point: pt
+        cp1: { x: x1, y: y1 },
+        cp2: { x: x2, y: y2 },
+        point: { x: x3, y: y3 }
       });
     }
 
-    this.currentPath.currentPoint = pt;
+    this.currentPath.currentPoint = { x: x3, y: y3 };
   }
 
   opCurveToV(operands) {
@@ -477,12 +460,6 @@ class PDFContentParser {
     const width = parseFloat(operands[2]);
     const height = parseFloat(operands[3]);
 
-    // Apply CTM transformation to all four corners
-    const p1 = this.transformPoint(x, y);
-    const p2 = this.transformPoint(x + width, y);
-    const p3 = this.transformPoint(x + width, y + height);
-    const p4 = this.transformPoint(x, y + height);
-
     if (!this.currentPath) {
       this.currentPath = this.createPath();
     }
@@ -490,15 +467,15 @@ class PDFContentParser {
     // Create rectangle as closed path
     this.currentPath.subpaths.push({
       segments: [
-        { type: 'line', point: p2 },
-        { type: 'line', point: p3 },
-        { type: 'line', point: p4 }
+        { type: 'line', point: { x: x + width, y } },
+        { type: 'line', point: { x: x + width, y: y + height } },
+        { type: 'line', point: { x, y: y + height } }
       ],
       closed: true,
-      startPoint: p1
+      startPoint: { x, y }
     });
 
-    this.currentPath.currentPoint = p1;
+    this.currentPath.currentPoint = { x, y };
   }
 
   // Path painting operators
@@ -545,6 +522,13 @@ class PDFContentParser {
     this.currentPath = null;
   }
 
+  opEndPathNoOutput() {
+    // End path without painting and don't include in output
+    // Used for clipping paths (W, W*) which define crop regions
+    // We discard these to remove the cropping rectangles from the output
+    this.currentPath = null;
+  }
+
   // Graphics state operators
 
   opSetLineWidth(operands) {
@@ -577,43 +561,6 @@ class PDFContentParser {
   opRestoreState() {
     if (this.stateStack.length > 0) {
       this.graphicsState = this.stateStack.pop();
-    }
-  }
-
-  opBeginMarkedContent(operands) {
-    // BDC operator: tag properties
-    // operands[0] is the tag (e.g., /OC for Optional Content)
-    // operands[1] is the properties dictionary reference
-    if (operands.length >= 2) {
-      const tag = operands[0];
-      const properties = operands[1];
-
-      // Debug logging for layer tracking
-      if (this.debugCount < 5 && tag === '/OC') {
-        console.log(`BDC: tag=${tag}, properties=${properties}`);
-        console.log(`  Available layer names:`, Object.keys(this.layerNames).slice(0, 5));
-        console.log(`  Lookup result:`, this.layerNames[properties]);
-        this.debugCount++;
-      }
-
-      // If this is an OC (Optional Content / Layer) tag
-      if (tag === '/OC') {
-        // properties is an OCG reference - look up the layer name
-        const layerName = this.layerNames[properties];
-        if (layerName) {
-          this.layerStack.push(this.currentLayer);
-          this.currentLayer = layerName;
-        }
-      }
-    }
-  }
-
-  opEndMarkedContent() {
-    // EMC operator: end marked content
-    if (this.layerStack.length > 0) {
-      this.currentLayer = this.layerStack.pop();
-    } else {
-      this.currentLayer = null;
     }
   }
 
@@ -682,9 +629,9 @@ class PDFContentParser {
       subpaths: [],
       currentPoint: null,
       operation: null,
-      layer: this.currentLayer, // Attach current layer
       style: {},
-      transform: this.graphicsState.ctm
+      transform: this.graphicsState.ctm,
+      layer: this.currentLayer // Track which layer/OCG this path belongs to
     };
   }
 
@@ -808,7 +755,8 @@ class PDFContentParser {
         font: this.currentFont,
         fontSize: this.currentFontSize,
         fillColor: this.graphicsState.fillColor,
-        ctm: { ...this.graphicsState.ctm }
+        ctm: { ...this.graphicsState.ctm },
+        layer: this.currentLayer // Add layer information
       });
     }
   }
@@ -835,7 +783,8 @@ class PDFContentParser {
             font: this.currentFont,
             fontSize: this.currentFontSize,
             fillColor: this.graphicsState.fillColor,
-            ctm: { ...this.graphicsState.ctm }
+            ctm: { ...this.graphicsState.ctm },
+            layer: this.currentLayer // Add layer information
           });
         }
       }
@@ -983,12 +932,19 @@ class PDFContentParser {
         this.shouldLogFonts = true; // Log first few fonts
       }
 
+      // Extract and store BaseFont name for this font reference
+      const baseFont = font.dict.get(PDFName.of('BaseFont'));
+      if (baseFont) {
+        const baseFontStr = baseFont.toString().replace(/^\//, ''); // Remove leading slash
+        this.fontDetails[fontName] = baseFontStr; // Store with original fontName (with slash)
+        this.fontDetails[cleanFontName] = baseFontStr; // Also store with clean name
+      }
+
       if (!this.inspectedFonts.has(cleanFontName) && this.inspectedFonts.size < 3 && this.shouldLogFonts) {
         console.log(`\n  [Font Info] "${cleanFontName}":`);
 
         // Get font properties
         const subtype = font.dict.get(PDFName.of('Subtype'));
-        const baseFont = font.dict.get(PDFName.of('BaseFont'));
         const encoding = font.dict.get(PDFName.of('Encoding'));
         const toUnicode = font.dict.get(PDFName.of('ToUnicode'));
 
@@ -1128,6 +1084,66 @@ class PDFContentParser {
 
     const value = parseInt(hex, 16);
     return isNaN(value) ? null : value;
+  }
+
+  // Marked content operators (for layer tracking)
+
+  /**
+   * BDC - Begin marked content sequence with property dict
+   * Format: /Tag <<properties>> BDC
+   * Example: /OC /MC0 BDC
+   */
+  opBeginMarkedContent(operands) {
+    if (operands.length < 2) return;
+
+    const tag = operands[0]; // e.g., "/OC"
+    const mcRef = operands[1]; // e.g., "/MC0" or "<<...>>"
+
+    // Push to marked content stack
+    this.markedContentStack.push({ tag, mcRef });
+
+    // If this is an /OC (Optional Content) tag, resolve it to the actual layer name
+    if (tag === '/OC') {
+      // Resolve /MC0 -> actual layer name using the layerMap
+      const layerName = this.layerMap[mcRef];
+      this.currentLayer = layerName || mcRef; // Fall back to mcRef if no mapping found
+    }
+  }
+
+  /**
+   * BMC - Begin marked content sequence (simple, no properties)
+   * Format: /Tag BMC
+   */
+  opBeginMarkedContentSimple(operands) {
+    if (operands.length < 1) return;
+
+    const tag = operands[0];
+
+    // Push to marked content stack
+    this.markedContentStack.push({ tag, properties: null });
+  }
+
+  /**
+   * EMC - End marked content
+   */
+  opEndMarkedContent() {
+    if (this.markedContentStack.length === 0) return;
+
+    const popped = this.markedContentStack.pop();
+
+    // If we're exiting an /OC tag, update currentLayer
+    if (popped.tag === '/OC') {
+      // Find the most recent /OC tag still on the stack
+      this.currentLayer = null;
+      for (let i = this.markedContentStack.length - 1; i >= 0; i--) {
+        if (this.markedContentStack[i].tag === '/OC') {
+          const mcRef = this.markedContentStack[i].mcRef;
+          const layerName = this.layerMap[mcRef];
+          this.currentLayer = layerName || mcRef;
+          break;
+        }
+      }
+    }
   }
 }
 
