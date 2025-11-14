@@ -74,6 +74,8 @@ const exportLayersListDiv = document.getElementById('exportLayersList');
 const fileInfoDiv = document.getElementById('fileInfo');
 const fileNameDiv = document.getElementById('fileName');
 const fileSizeDiv = document.getElementById('fileSize');
+const vectorCountBadge = document.getElementById('vectorCountBadge');
+const overlayCountBadge = document.getElementById('overlayCountBadge');
 
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
@@ -217,6 +219,9 @@ function displayResults(data) {
   // Display layer controls
   displayLayerControls();
 
+  // Update tab counts
+  updateTabCounts();
+
   // Generate and display map preview
   generateMapPreview();
 }
@@ -308,12 +313,37 @@ function extractLayersFromData(data) {
       window.layerColorInfo[sublayer] = [colorStr];
     });
 
-    // Enable all layers by default
-    allLayers.forEach(layer => enabledLayers.add(layer));
+    // Enable vector layers by default, but NOT overlay layers
+    allLayers.forEach(layer => {
+      if (!isOverlayLayer(layer)) {
+        enabledLayers.add(layer);
+      }
+      // Overlay layers remain disabled by default
+    });
   }
 
   console.log('Extracted color sublayers:', allLayers);
   console.log('Layer colors:', window.layerColorInfo);
+}
+
+function updateTabCounts() {
+  // Count enabled vector layers
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
+  const enabledVectorCount = vectorLayers.filter(l => enabledLayers.has(l)).length;
+  const totalVectorCount = vectorLayers.length;
+
+  // Count enabled overlay layers
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
+  const enabledOverlayCount = overlayLayers.filter(l => enabledLayers.has(l)).length;
+  const totalOverlayCount = overlayLayers.length;
+
+  // Update badges
+  if (vectorCountBadge) {
+    vectorCountBadge.textContent = `(${enabledVectorCount}/${totalVectorCount})`;
+  }
+  if (overlayCountBadge) {
+    overlayCountBadge.textContent = `(${enabledOverlayCount}/${totalOverlayCount})`;
+  }
 }
 
 function displayLayerControls() {
@@ -415,6 +445,7 @@ function createLayerControlItem(layerName) {
     } else {
       enabledLayers.delete(layerName);
     }
+    updateTabCounts();
     generateMapPreview();
     updateExportLayersList();
   });
@@ -475,7 +506,8 @@ function selectAllLayers() {
     if (checkbox) checkbox.checked = true;
   });
 
-  // Regenerate preview and export list
+  // Update counts and regenerate preview
+  updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
 }
@@ -494,7 +526,8 @@ function deselectAllLayers() {
     if (checkbox) checkbox.checked = false;
   });
 
-  // Regenerate preview and export list
+  // Update counts and regenerate preview
+  updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
 }
@@ -513,7 +546,8 @@ function selectAllTextLayers() {
     if (checkbox) checkbox.checked = true;
   });
 
-  // Regenerate preview and export list
+  // Update counts and regenerate preview
+  updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
 }
@@ -532,7 +566,8 @@ function deselectAllTextLayers() {
     if (checkbox) checkbox.checked = false;
   });
 
-  // Regenerate preview and export list
+  // Update counts and regenerate preview
+  updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
 }
