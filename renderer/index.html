@@ -673,8 +673,8 @@
     <!-- Toolbar with tabs -->
     <div id="toolbar" class="toolbar" style="display: none;">
       <div class="toolbar-left">
-        <button class="tab-btn active" data-tab="vector-data">Vector Data</button>
-        <button class="tab-btn" data-tab="text-layers">Overlay</button>
+        <button class="tab-btn active" data-tab="vector-data">Vector Data <span id="vectorCountBadge"></span></button>
+        <button class="tab-btn" data-tab="text-layers">Overlay <span id="overlayCountBadge"></span></button>
         <button class="tab-btn" data-tab="export">Export</button>
         <button class="tab-btn" data-tab="metadata">Metadata</button>
       </div>
@@ -716,8 +716,15 @@
 
             <!-- Overlay Tab -->
             <div id="text-layers-panel" class="tab-panel">
-              <div class="map-preview" id="overlayMapPreview" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f5f7ff; border-radius: 8px; overflow: hidden;">
-                <div style="color: #999;">Map preview will display here</div>
+              <div class="sidebar-full">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <h3 style="font-size: 1em; font-weight: bold; color: #333;">Text Overlays</h3>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="selectAllTextLayersBtn" class="layer-toggle-btn" title="Select All">All</button>
+                    <button id="deselectAllTextLayersBtn" class="layer-toggle-btn" title="Deselect All">None</button>
+                  </div>
+                </div>
+                <div id="textLayerControls" class="layer-controls"></div>
               </div>
             </div>
 

@@ -11,15 +11,108 @@ let startPanX = 0;
 let startPanY = 0;
 let cachedBounds = null; // Cache the initial bounds to prevent jumping
 
+// Layer categorization - defines which layers are plottable vector data vs overlays/annotations
+// Plottable layers: Physical map features suitable for pen plotting
+// Overlay layers: Text, labels, shields, grids, and other annotation elements
+const OVERLAY_LAYER_PATTERNS = [
+  'Boundaries',
+  'County or Equivalent',
+  'Geographic Names',
+  'Map Elements',
+  'Projection and Grids',
+  'Road Names and Shields',
+  'Structures',
+  'Airports',
+  'Barcode',
+  'Department of Defense',
+  'Federal Administrated Lands',
+  'Images'
+];
+
+// Smart layer naming - infer feature types from colors
+// Maps base layer names + color patterns to descriptive names
+const LAYER_COLOR_DESCRIPTORS = {
+  'Contours': {
+    'rgb(153,102,51)': 'Contours (Index - Light)',
+    'rgb(102,51,0)': 'Contours (Index - Medium)',
+    'rgb(51,25,0)': 'Contours (Index - Dark)',
+    'rgb(153,76,0)': 'Contours (Intermediate)',
+    'rgb(139,90,43)': 'Contours (Supplemental)'
+  },
+  'Hydrography': {
+    'rgb(0,0,0)': 'Hydrography (Outlines)',
+    'rgb(151,219,242)': 'Hydrography (Lakes - Light)',
+    'rgb(190,232,255)': 'Hydrography (Lakes - Pale)',
+    'rgb(0,92,230)': 'Hydrography (Rivers - Blue)',
+    'rgb(0,112,255)': 'Hydrography (Streams)',
+    'rgb(0,77,168)': 'Hydrography (Water Bodies)',
+    'rgb(153,204,255)': 'Hydrography (Wetlands)',
+    'rgb(204,235,197)': 'Hydrography (Marshes)'
+  },
+  'Transportation': {
+    'rgb(0,0,0)': 'Roads (Primary - Black)',
+    'rgb(255,0,0)': 'Roads (Highways - Red)',
+    'rgb(209,110,0)': 'Roads (Secondary - Orange)',
+    'rgb(204,204,204)': 'Roads (Local - Gray)',
+    'rgb(156,156,156)': 'Roads (Minor - Light Gray)',
+    'rgb(255,211,127)': 'Roads (Unimproved - Tan)'
+  },
+  'Road Features': {
+    'rgb(0,0,0)': 'Roads (Primary)',
+    'rgb(255,0,0)': 'Roads (Highways)',
+    'rgb(209,110,0)': 'Roads (Secondary)',
+    'rgb(204,204,204)': 'Roads (Local)',
+    'rgb(156,156,156)': 'Roads (Minor)'
+  },
+  'Trails': {
+    'rgb(0,0,0)': 'Trails (Primary)',
+    'rgb(255,0,0)': 'Trails (Marked)',
+    'rgb(139,69,19)': 'Trails (Unpaved)',
+    'rgb(204,102,0)': 'Trails (Secondary)'
+  },
+  'Woodland': {
+    'rgb(228,246,210)': 'Woodland (Forest - Light)',
+    'rgb(209,255,189)': 'Woodland (Forest - Pale)',
+    'rgb(180,215,155)': 'Woodland (Forest - Medium)',
+    'rgb(137,205,102)': 'Woodland (Dense Forest)'
+  }
+};
+
+// Helper function to get descriptive layer name
+function getDescriptiveLayerName(baseName, colorStr) {
+  // Check if we have a custom descriptor for this base name + color
+  if (LAYER_COLOR_DESCRIPTORS[baseName] && LAYER_COLOR_DESCRIPTORS[baseName][colorStr]) {
+    return LAYER_COLOR_DESCRIPTORS[baseName][colorStr];
+  }
+
+  // Fall back to base name
+  return baseName;
+}
+
+// Helper function to check if a layer should be categorized as overlay
+function isOverlayLayer(layerName) {
+  // Extract base layer name if it's a color sublayer
+  const baseName = layerName.includes('::') ? layerName.split('::')[0] : layerName;
+
+  // Text layers (with emoji prefix) are always overlays
+  if (baseName.startsWith('📝 ')) {
+    return true;
+  }
+
+  // Check if layer name matches any overlay patterns
+  return OVERLAY_LAYER_PATTERNS.some(pattern =>
+    baseName.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
 // DOM elements
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadSection = document.querySelector('.upload-section');
 const statusDiv = document.getElementById('status');
 const resultsDiv = document.getElementById('results');
 const metadataDiv = document.getElementById('metadata');
-// Removed: const textDataDiv = document.getElementById('textData');
 const layerControlsDiv = document.getElementById('layerControls');
-// Removed: const textLayerControlsDiv = document.getElementById('textLayerControls');
+const textLayerControlsDiv = document.getElementById('textLayerControls');
 const mapPreviewDiv = document.getElementById('mapPreview');
 const mapStatsDiv = document.getElementById('mapStats');
 const exportSvgBtn = document.getElementById('exportSvgBtn');
@@ -34,13 +127,15 @@ const layerDetailsSection = document.getElementById('layerDetailsSection');
 const layerDetailsDiv = document.getElementById('layerDetails');
 const selectAllLayersBtn = document.getElementById('selectAllLayersBtn');
 const deselectAllLayersBtn = document.getElementById('deselectAllLayersBtn');
-// Removed: const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
-// Removed: const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
+const selectAllTextLayersBtn = document.getElementById('selectAllTextLayersBtn');
+const deselectAllTextLayersBtn = document.getElementById('deselectAllTextLayersBtn');
 const toolbarDiv = document.getElementById('toolbar');
 const exportLayersListDiv = document.getElementById('exportLayersList');
 const fileInfoDiv = document.getElementById('fileInfo');
 const fileNameDiv = document.getElementById('fileName');
 const fileSizeDiv = document.getElementById('fileSize');
+const vectorCountBadge = document.getElementById('vectorCountBadge');
+const overlayCountBadge = document.getElementById('overlayCountBadge');
 
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
@@ -51,8 +146,8 @@ zoomOutBtn.addEventListener('click', () => adjustZoom(-0.1));
 zoomResetBtn.addEventListener('click', resetZoom);
 selectAllLayersBtn.addEventListener('click', selectAllLayers);
 deselectAllLayersBtn.addEventListener('click', deselectAllLayers);
-// Removed: selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
-// Removed: deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
+selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
+deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
 
 // Panning event listeners
 mapPreviewDiv.addEventListener('mousedown', startPan);
@@ -184,6 +279,9 @@ function displayResults(data) {
   // Display layer controls
   displayLayerControls();
 
+  // Update tab counts
+  updateTabCounts();
+
   // Generate and display map preview
   generateMapPreview();
 }
@@ -212,28 +310,28 @@ function extractLayersFromData(data) {
 
   // Extract layer names and colors from contentPaths if available
   if (data.contentPaths && data.contentPaths.paths) {
-    const layerNames = new Set();
-    const layerColors = {}; // Map of layer name to Set of colors
+    const layerColorSublayers = new Set(); // Store "Layer::color" format
+    const layerColors = {}; // Map of base layer name to Set of colors
 
     data.contentPaths.paths.forEach(path => {
       if (path.layer) {
-        layerNames.add(path.layer);
-
         // Collect colors for this layer
         if (!layerColors[path.layer]) {
           layerColors[path.layer] = new Set();
         }
 
-        // Add fill color if present
-        if (path.fill && path.fillColor) {
-          const colorStr = `rgb(${path.fillColor.join(',')})`;
-          layerColors[path.layer].add(colorStr);
+        // Determine the color for this path (prefer stroke, fall back to fill)
+        let colorStr = null;
+        if (path.stroke && path.strokeColor) {
+          colorStr = `rgb(${path.strokeColor.join(',')})`;
+        } else if (path.fill && path.fillColor) {
+          colorStr = `rgb(${path.fillColor.join(',')})`;
         }
 
-        // Add stroke color if present
-        if (path.stroke && path.strokeColor) {
-          const colorStr = `rgb(${path.strokeColor.join(',')})`;
+        if (colorStr) {
           layerColors[path.layer].add(colorStr);
+          // Create sublayer: "LayerName::rgb(r,g,b)"
+          layerColorSublayers.add(`${path.layer}::${colorStr}`);
         }
       }
     });
@@ -243,7 +341,6 @@ function extractLayersFromData(data) {
       Object.keys(data.contentPaths.textObjectsByLayer).forEach(textLayer => {
         // Prefix text layers to distinguish them from path layers
         const textLayerName = `📝 ${textLayer}`;
-        layerNames.add(textLayerName);
 
         // Collect text colors (from fillColor)
         if (!layerColors[textLayerName]) {
@@ -254,112 +351,101 @@ function extractLayersFromData(data) {
           if (textObj.fillColor && Array.isArray(textObj.fillColor)) {
             const colorStr = `rgb(${textObj.fillColor.join(',')})`;
             layerColors[textLayerName].add(colorStr);
+            layerColorSublayers.add(`${textLayerName}::${colorStr}`);
           }
         });
       });
     }
 
-    // If no layer info on paths, try to get from metadata
-    if (layerNames.size === 0 && data.layerNames) {
-      Object.values(data.layerNames).forEach(name => layerNames.add(name));
+    // If no layer info on paths, create a default "All Paths" layer
+    if (layerColorSublayers.size === 0) {
+      layerColorSublayers.add('All Paths::rgb(0,0,0)');
     }
 
-    // If still no layers, create a default "All Paths" layer
-    if (layerNames.size === 0) {
-      layerNames.add('All Paths');
-    }
-
-    allLayers = Array.from(layerNames).sort();
+    allLayers = Array.from(layerColorSublayers).sort();
 
     // Store color information in a global object for display
     window.layerColorInfo = {};
-    allLayers.forEach(layer => {
-      window.layerColorInfo[layer] = Array.from(layerColors[layer] || []);
+    window.layerBaseNames = {}; // Map from sublayer to base layer name
+    allLayers.forEach(sublayer => {
+      const [baseName, colorStr] = sublayer.split('::');
+      window.layerBaseNames[sublayer] = baseName;
+      window.layerColorInfo[sublayer] = [colorStr];
     });
 
-    // Enable all layers by default
-    allLayers.forEach(layer => enabledLayers.add(layer));
+    // Enable vector layers by default, but NOT overlay layers
+    allLayers.forEach(layer => {
+      if (!isOverlayLayer(layer)) {
+        enabledLayers.add(layer);
+      }
+      // Overlay layers remain disabled by default
+    });
   }
 
-  console.log('Extracted layers:', allLayers);
+  console.log('Extracted color sublayers:', allLayers);
   console.log('Layer colors:', window.layerColorInfo);
+}
+
+function updateTabCounts() {
+  // Count enabled vector layers
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
+  const enabledVectorCount = vectorLayers.filter(l => enabledLayers.has(l)).length;
+
+  // Count enabled overlay layers
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
+  const enabledOverlayCount = overlayLayers.filter(l => enabledLayers.has(l)).length;
+
+  // Update badges - show only selected count
+  if (vectorCountBadge) {
+    vectorCountBadge.textContent = `(${enabledVectorCount})`;
+  }
+  if (overlayCountBadge) {
+    overlayCountBadge.textContent = `(${enabledOverlayCount})`;
+  }
 }
 
 function displayLayerControls() {
   layerControlsDiv.innerHTML = '';
-  // Removed: textLayerControlsDiv.innerHTML = '';
+  textLayerControlsDiv.innerHTML = '';
 
   if (allLayers.length === 0) {
     layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No layers found</div>';
+    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No overlay layers found</div>';
     return;
   }
 
-  // Separate vector layers and text layers
-  const vectorLayers = allLayers.filter(l => !l.startsWith('📝 ')).sort((a, b) => a.localeCompare(b));
-  const textLayers = allLayers.filter(l => l.startsWith('📝 ')).sort((a, b) => {
-    const aName = a.substring(2); // Remove emoji prefix
-    const bName = b.substring(2);
-    return aName.localeCompare(bName);
+  // Separate plottable vector layers from overlay/annotation layers
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l)).sort((a, b) => a.localeCompare(b));
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l)).sort((a, b) => {
+    // Sort text layers (with emoji) separately
+    const aIsText = a.startsWith('📝 ');
+    const bIsText = b.startsWith('📝 ');
+    if (aIsText && bIsText) {
+      return a.substring(2).localeCompare(b.substring(2));
+    }
+    if (aIsText) return 1; // Text layers at bottom
+    if (bIsText) return -1;
+    return a.localeCompare(b);
   });
 
-  // Populate vector layers first
-  vectorLayers.forEach(layerName => {
-    const layerItem = createLayerControlItem(layerName);
-    layerControlsDiv.appendChild(layerItem);
-  });
-
-  // Add text layers in a collapsible section if any exist
-  if (textLayers.length > 0) {
-    // Create collapsible header
-    const textSection = document.createElement('div');
-    textSection.style.cssText = 'margin-top: 12px; border-top: 1px solid #e0e4ff; padding-top: 8px;';
-
-    const textHeader = document.createElement('div');
-    textHeader.className = 'collapseable-header';
-    textHeader.style.cssText = 'cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: #f0f2ff; border-radius: 3px; margin-bottom: 6px;';
-
-    const textHeaderTitle = document.createElement('span');
-    textHeaderTitle.style.cssText = 'font-size: 0.85em; font-weight: 600; color: #555;';
-    textHeaderTitle.textContent = `Text Overlays (${textLayers.length})`;
-
-    const textHeaderIcon = document.createElement('span');
-    textHeaderIcon.className = 'collapse-icon collapsed';
-    textHeaderIcon.textContent = '▼';
-
-    textHeader.appendChild(textHeaderTitle);
-    textHeader.appendChild(textHeaderIcon);
-
-    // Create collapsible content container
-    const textContent = document.createElement('div');
-    textContent.className = 'collapseable-content collapsed';
-    textContent.style.maxHeight = '0';
-    textContent.style.opacity = '0';
-
-    // Populate text layers
-    textLayers.forEach(layerName => {
+  // Populate plottable vector layers in Vector Data tab
+  if (vectorLayers.length > 0) {
+    vectorLayers.forEach(layerName => {
       const layerItem = createLayerControlItem(layerName);
-      textContent.appendChild(layerItem);
+      layerControlsDiv.appendChild(layerItem);
     });
+  } else {
+    layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No plottable layers found</div>';
+  }
 
-    // Toggle collapse on click
-    textHeader.addEventListener('click', () => {
-      const isCollapsed = textContent.classList.contains('collapsed');
-      if (isCollapsed) {
-        textContent.classList.remove('collapsed');
-        textHeaderIcon.classList.remove('collapsed');
-        textContent.style.maxHeight = '2000px';
-        textContent.style.opacity = '1';
-      } else {
-        textContent.classList.add('collapsed');
-        textHeaderIcon.classList.add('collapsed');
-        textContent.style.maxHeight = '0';
-        textContent.style.opacity = '0';
-      }
+  // Populate overlay/annotation layers in Overlay tab
+  if (overlayLayers.length > 0) {
+    overlayLayers.forEach(layerName => {
+      const layerItem = createLayerControlItem(layerName);
+      textLayerControlsDiv.appendChild(layerItem);
     });
-
-    textSection.appendChild(textHeader);
-    textSection.appendChild(textContent);
-    layerControlsDiv.appendChild(textSection);
+  } else {
+    textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No overlay layers found</div>';
   }
 }
 
@@ -368,11 +454,26 @@ function createLayerControlItem(layerName) {
   layerItem.className = 'layer-item';
   layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
-  // Calculate path count
+  // Parse layerName to extract base name and color
+  const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+
+  // Calculate path count for this specific color sublayer
   let pathCount = 0;
   if (currentPDFData && currentPDFData.contentPaths) {
     const paths = currentPDFData.contentPaths.paths;
-    pathCount = paths.filter(p => p.layer === layerName).length;
+    pathCount = paths.filter(p => {
+      if (p.layer !== baseName) return false;
+      if (!colorStr) return true;  // No color filter, count all
+
+      // Check if path color matches
+      let pathColor = null;
+      if (p.stroke && p.strokeColor) {
+        pathColor = `rgb(${p.strokeColor.join(',')})`;
+      } else if (p.fill && p.fillColor) {
+        pathColor = `rgb(${p.fillColor.join(',')})`;
+      }
+      return pathColor === colorStr;
+    }).length;
   }
 
   // Path count badge on the left (outside the checkbox container)
@@ -402,7 +503,9 @@ function createLayerControlItem(layerName) {
     } else {
       enabledLayers.delete(layerName);
     }
+    updateTabCounts();
     generateMapPreview();
+    updateExportLayersList();
   });
 
   const label = document.createElement('label');
@@ -411,7 +514,9 @@ function createLayerControlItem(layerName) {
   label.style.cssText = 'flex: 1; min-width: 0;';
 
   const span = document.createElement('span');
-  span.textContent = layerName;
+  // Display descriptive name based on base layer + color
+  const displayName = getDescriptiveLayerName(baseName, colorStr);
+  span.textContent = displayName;
 
   label.appendChild(checkbox);
   label.appendChild(span);
@@ -447,42 +552,84 @@ function createLayerControlItem(layerName) {
 }
 
 function selectAllLayers() {
-  // Enable all layers
-  allLayers.forEach(layer => {
+  // Enable only plottable vector layers (not overlays)
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
+  vectorLayers.forEach(layer => {
     enabledLayers.add(layer);
   });
 
-  // Update all checkboxes
-  allLayers.forEach(layerName => {
+  // Update all vector layer checkboxes
+  vectorLayers.forEach(layerName => {
     const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
     const checkbox = document.getElementById(`layer-${safeId}`);
     if (checkbox) checkbox.checked = true;
   });
 
-  // Regenerate preview
+  // Update counts and regenerate preview
+  updateTabCounts();
   generateMapPreview();
+  updateExportLayersList();
 }
 
 function deselectAllLayers() {
-  // Disable all layers
-  allLayers.forEach(layer => {
+  // Disable only plottable vector layers (not overlays)
+  const vectorLayers = allLayers.filter(l => !isOverlayLayer(l));
+  vectorLayers.forEach(layer => {
     enabledLayers.delete(layer);
   });
 
-  // Update all checkboxes
-  allLayers.forEach(layerName => {
+  // Update all vector layer checkboxes
+  vectorLayers.forEach(layerName => {
     const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
     const checkbox = document.getElementById(`layer-${safeId}`);
     if (checkbox) checkbox.checked = false;
   });
 
-  // Regenerate preview
+  // Update counts and regenerate preview
+  updateTabCounts();
   generateMapPreview();
+  updateExportLayersList();
 }
 
-// FUNCTIONS REMOVED - Text layer control buttons no longer exist
-// function selectAllTextLayers() { ... }
-// function deselectAllTextLayers() { ... }
+function selectAllTextLayers() {
+  // Enable all overlay layers (text, annotations, etc.)
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
+  overlayLayers.forEach(layer => {
+    enabledLayers.add(layer);
+  });
+
+  // Update all overlay layer checkboxes
+  overlayLayers.forEach(layerName => {
+    const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const checkbox = document.getElementById(`layer-${safeId}`);
+    if (checkbox) checkbox.checked = true;
+  });
+
+  // Update counts and regenerate preview
+  updateTabCounts();
+  generateMapPreview();
+  updateExportLayersList();
+}
+
+function deselectAllTextLayers() {
+  // Disable all overlay layers (text, annotations, etc.)
+  const overlayLayers = allLayers.filter(l => isOverlayLayer(l));
+  overlayLayers.forEach(layer => {
+    enabledLayers.delete(layer);
+  });
+
+  // Update all overlay layer checkboxes
+  overlayLayers.forEach(layerName => {
+    const safeId = layerName.replace(/[^a-zA-Z0-9-_]/g, '-');
+    const checkbox = document.getElementById(`layer-${safeId}`);
+    if (checkbox) checkbox.checked = false;
+  });
+
+  // Update counts and regenerate preview
+  updateTabCounts();
+  generateMapPreview();
+  updateExportLayersList();
+}
 
 function displayLayerDetails() {
   if (!currentPDFData || !currentPDFData.contentPaths) {
@@ -553,21 +700,67 @@ function updateExportLayersList() {
     });
   }
 
-  // Sort enabled layers alphabetically
+  // Separate plottable vector layers from overlay layers
   const sortedEnabledLayers = Array.from(enabledLayers).sort();
+  const vectorLayers = sortedEnabledLayers.filter(l => !isOverlayLayer(l));
+  const overlayLayers = sortedEnabledLayers.filter(l => isOverlayLayer(l));
 
-  // Build the list HTML
-  const listItems = sortedEnabledLayers.map(layerName => {
-    const pathCount = layerPathCounts[layerName] || 0;
-    return `
-      <div style="padding: 8px 12px; background: #f5f7ff; border-radius: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-        <div style="font-size: 0.85em; color: #333; font-weight: 500;">${layerName}</div>
-        <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount} paths</div>
-      </div>
-    `;
-  }).join('');
+  // Build the list HTML with sections
+  let html = '';
 
-  exportLayersListDiv.innerHTML = listItems;
+  if (vectorLayers.length > 0) {
+    html += '<div style="margin-bottom: 16px;"><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Vector Layers</h5>';
+    vectorLayers.forEach(layerName => {
+      // Parse sublayer format for descriptive naming
+      const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+      const displayName = getDescriptiveLayerName(baseName, colorStr);
+
+      const pathCount = layerPathCounts[layerName] || 0;
+      const colors = window.layerColorInfo?.[layerName] || [];
+      const swatchesHTML = colors.slice(0, 3).map(color =>
+        `<span style="display: inline-block; width: 10px; height: 10px; background: ${color}; border: 1px solid #ccc; border-radius: 2px; margin-left: 2px;"></span>`
+      ).join('');
+
+      html += `
+        <div style="padding: 6px 10px; background: #f5f7ff; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.85em; color: #333; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+            <span>${displayName}</span>
+            ${swatchesHTML}
+          </div>
+          <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  if (overlayLayers.length > 0) {
+    html += '<div><h5 style="font-size: 0.8em; font-weight: 600; color: #667eea; margin-bottom: 8px; text-transform: uppercase;">Overlays</h5>';
+    overlayLayers.forEach(layerName => {
+      // Parse sublayer format for descriptive naming
+      const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+      const displayName = getDescriptiveLayerName(baseName, colorStr);
+
+      const pathCount = layerPathCounts[layerName] || 0;
+      const colors = window.layerColorInfo?.[layerName] || [];
+      const swatchesHTML = colors.slice(0, 3).map(color =>
+        `<span style="display: inline-block; width: 10px; height: 10px; background: ${color}; border: 1px solid #ccc; border-radius: 2px; margin-left: 2px;"></span>`
+      ).join('');
+
+      html += `
+        <div style="padding: 6px 10px; background: #f5f7ff; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.85em; color: #333; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+            <span>${displayName}</span>
+            ${swatchesHTML}
+          </div>
+          <div style="font-size: 0.75em; color: #777; background: white; padding: 2px 8px; border-radius: 3px;">${pathCount}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  exportLayersListDiv.innerHTML = html;
 }
 
 function generateMapPreview() {
@@ -692,14 +885,23 @@ function generateSVG(isExport) {
   const paths = currentPDFData.contentPaths.paths;
   const stats = currentPDFData.contentPaths.statistics || {};
 
-  // Filter paths by enabled layers
+  // Filter paths by enabled color sublayers
   const filteredPaths = paths.filter(path => {
-    // If layers exist, only include paths from enabled layers
-    if (allLayers.length > 0 && path.layer) {
-      return enabledLayers.has(path.layer);
+    if (!path.layer) return false;
+
+    // Determine the color for this path (prefer stroke, fall back to fill)
+    let pathColor = null;
+    if (path.stroke && path.strokeColor) {
+      pathColor = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      pathColor = `rgb(${path.fillColor.join(',')})`;
     }
-    // If no layers or path has no layer, only include if all layers are enabled
-    return allLayers.length === 0 || enabledLayers.size === allLayers.length;
+
+    if (!pathColor) return false;
+
+    // Check if the color sublayer is enabled
+    const sublayerName = `${path.layer}::${pathColor}`;
+    return enabledLayers.has(sublayerName);
   });
 
   if (filteredPaths.length === 0) {
@@ -826,18 +1028,37 @@ function generateSVG(isExport) {
     cropMaskSvg += `  </g>\n`;
   }
 
-  // Group paths by layer
+  // Group paths by color sublayer
   const pathsByLayer = {};
   filteredPaths.forEach(path => {
-    const layerName = path.layer || 'default';
-    if (!pathsByLayer[layerName]) {
-      pathsByLayer[layerName] = [];
+    // Determine the color for this path
+    let pathColor = null;
+    if (path.stroke && path.strokeColor) {
+      pathColor = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      pathColor = `rgb(${path.fillColor.join(',')})`;
     }
-    pathsByLayer[layerName].push(path);
+
+    const sublayerName = `${path.layer}::${pathColor}`;
+    if (!pathsByLayer[sublayerName]) {
+      pathsByLayer[sublayerName] = [];
+    }
+    pathsByLayer[sublayerName].push(path);
   });
 
-  // Generate path elements grouped by layer
-  Object.keys(pathsByLayer).sort().forEach(layerName => {
+  // Generate path elements grouped by color sublayer
+  // Render in REVERSE order of allLayers array - layers at top of UI list render last (appear on top)
+  // This ensures proper z-ordering where later layers in the UI appear above earlier ones
+  const layersToRender = allLayers.slice().reverse().filter(layer => pathsByLayer[layer]);
+
+  // Add any layers not in allLayers (shouldn't happen, but failsafe)
+  Object.keys(pathsByLayer).forEach(layerName => {
+    if (!layersToRender.includes(layerName)) {
+      layersToRender.push(layerName);
+    }
+  });
+
+  layersToRender.forEach(layerName => {
     svg += `  <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
 
     pathsByLayer[layerName].forEach((path, index) => {

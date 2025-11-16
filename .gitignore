@@ -72,6 +72,14 @@ yarn-error.log*
 *.rpm
 *.AppImage
 
-# PDF test files (optional - uncomment if you don't want to commit test PDFs)
-# *.pdf
-# test-data/*.pdf
+# Sample files - large PDFs, SVGs, and screenshots
+# These files are kept locally but not tracked in git to reduce repo size
+samples/*.pdf
+samples/*.svg
+samples/*.png
+samples/*.jpg
+samples/*.jpeg
+
+# Exception: Keep sample README and .gitkeep
+!samples/README.md
+!samples/.gitkeep
