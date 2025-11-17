@@ -1,7 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const os = require('os');
 const PDFProcessor = require('./src/pdf-processor');
+
+const execAsync = promisify(exec);
 
 let mainWindow;
 
@@ -196,6 +201,82 @@ ipcMain.handle('file:save', async (event, data) => {
     return {
       success: false,
       error: error.message
+    };
+  }
+});
+
+// Check if vpype is installed
+ipcMain.handle('vpype:check', async () => {
+  try {
+    const { stdout } = await execAsync('vpype --version');
+    return {
+      success: true,
+      installed: true,
+      version: stdout.trim()
+    };
+  } catch (error) {
+    return {
+      success: true,
+      installed: false,
+      error: error.message
+    };
+  }
+});
+
+// Run vpype crop command
+ipcMain.handle('vpype:crop', async (event, data) => {
+  try {
+    const { svgContent, cropX, cropY, cropWidth, cropHeight, paperSize } = data;
+
+    // Create temporary files
+    const tmpDir = os.tmpdir();
+    const inputPath = path.join(tmpDir, `geopdf-input-${Date.now()}.svg`);
+    const outputPath = path.join(tmpDir, `geopdf-output-${Date.now()}.svg`);
+
+    // Write input SVG to temp file
+    await fs.writeFile(inputPath, svgContent, 'utf8');
+
+    // Build vpype command
+    // vpype read --attr fill --attr stroke --attr stroke-width INPUT.svg \
+    //   crop X Y WIDTH HEIGHT \
+    //   layout PAPER_SIZE \
+    //   write OUTPUT.svg
+    const attrs = '--attr fill --attr stroke --attr stroke-width --attr stroke-linejoin --attr stroke-linecap --attr fill-rule';
+    const cropCmd = `crop ${cropX}mm ${cropY}mm ${cropWidth}mm ${cropHeight}mm`;
+    const layoutCmd = paperSize && paperSize !== 'original' ? `layout ${paperSize}` : '';
+
+    const command = `vpype read ${attrs} "${inputPath}" ${cropCmd} ${layoutCmd} write "${outputPath}"`;
+
+    console.log('Running vpype command:', command);
+
+    // Execute vpype
+    const { stdout, stderr } = await execAsync(command, {
+      maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large SVGs
+    });
+
+    // Read the output file
+    const croppedSvg = await fs.readFile(outputPath, 'utf8');
+
+    // Clean up temporary files
+    try {
+      await fs.unlink(inputPath);
+      await fs.unlink(outputPath);
+    } catch (cleanupError) {
+      console.warn('Failed to clean up temp files:', cleanupError);
+    }
+
+    return {
+      success: true,
+      svg: croppedSvg,
+      stdout: stdout || '',
+      stderr: stderr || ''
+    };
+  } catch (error) {
+    console.error('Error running vpype:', error);
+    return {
+      success: false,
+      error: error.message,
+      stderr: error.stderr || ''
     };
   }
 });

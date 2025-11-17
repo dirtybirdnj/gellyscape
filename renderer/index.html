@@ -117,23 +117,23 @@
       min-height: 0;
     }
 
-    .upload-section {
-      border: 2px dashed #667eea;
-      border-radius: 8px;
-      padding: 15px;
+    .upload-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      min-height: 400px;
+    }
+
+    .upload-placeholder-content {
       text-align: center;
-      margin-bottom: 10px;
-      transition: all 0.3s ease;
-      flex-shrink: 0;
+      padding: 40px;
+      max-width: 500px;
     }
 
-    .upload-section.hidden {
+    .upload-placeholder.hidden {
       display: none;
-    }
-
-    .upload-section:hover {
-      border-color: #764ba2;
-      background-color: #f8f9ff;
     }
 
     .upload-btn {
@@ -185,14 +185,10 @@
     }
 
     .results {
-      display: none;
+      display: flex;
       flex: 1;
       min-height: 0;
       flex-direction: column;
-    }
-
-    .results.active {
-      display: flex;
     }
 
     .section {
@@ -208,9 +204,9 @@
       display: grid;
       grid-template-columns: 300px 1fr;
       gap: 15px;
-      margin-top: 10px;
       flex: 1;
       min-height: 0;
+      overflow: hidden;
     }
 
     .layer-controls-panel {
@@ -649,12 +645,14 @@
       display: none;
       flex: 1;
       min-height: 0;
-      overflow-y: auto;
     }
 
     .tab-panel.active {
       display: flex;
       flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .sidebar-full {
@@ -687,18 +685,11 @@
     </div>
 
     <div class="container">
-      <div class="upload-section">
-        <h2 style="font-size: 1.2em; margin-bottom: 8px;">Upload GeoPDF File</h2>
-        <p style="margin: 8px 0 12px 0; color: #666; font-size: 0.9em;">Select a GeoPDF file to extract raster and vector layers</p>
-        <button id="uploadBtn" class="upload-btn">Choose PDF File</button>
-        <div id="status" class="status"></div>
-      </div>
-
       <div id="results" class="results">
         <!-- Map Preview and Tab Content -->
         <div class="map-container">
           <!-- Left sidebar with tabs -->
-          <div style="display: flex; flex-direction: column; gap: 0; min-height: 0;">
+          <div style="display: flex; flex-direction: column; gap: 0; min-height: 0; overflow: hidden;">
 
             <!-- Vector Data Tab -->
             <div id="vector-data-panel" class="tab-panel active">
@@ -754,6 +745,50 @@
                   <input type="checkbox" id="cropMaskCheck">
                   <span>Show crop mask</span>
                 </label>
+
+                <!-- Crop Mode Section -->
+                <div style="margin: 16px 0; padding: 12px; background: #f0f2ff; border-radius: 6px; border: 1px solid #d0d4ff;">
+                  <button id="cropModeBtn" class="layer-toggle-btn" style="width: 100%; padding: 8px; font-size: 0.85em; margin-bottom: 12px;">
+                    <span id="cropModeLabel">Crop</span>
+                  </button>
+
+                  <div id="cropControls" style="display: none;">
+                    <label style="font-size: 0.85em; color: #333; margin-bottom: 4px; display: block; font-weight: 500;">
+                      Crop Dimensions
+                    </label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                      <div>
+                        <label style="font-size: 0.75em; color: #666;">Width (mm)</label>
+                        <input type="number" id="cropWidthInput" value="300" min="10" max="10000" step="1"
+                          style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd; font-size: 0.85em;">
+                      </div>
+                      <div>
+                        <label style="font-size: 0.75em; color: #666;">Height (mm)</label>
+                        <input type="number" id="cropHeightInput" value="400" min="10" max="10000" step="1"
+                          style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd; font-size: 0.85em;">
+                      </div>
+                    </div>
+
+                    <label style="font-size: 0.85em; color: #333; margin-bottom: 4px; display: block; font-weight: 500;">
+                      Scale: <span id="cropScaleValue">100</span>%
+                    </label>
+                    <input type="range" id="cropScaleSlider" min="10" max="200" value="100" step="5"
+                      style="width: 100%; margin-bottom: 12px;">
+
+                    <div style="font-size: 0.75em; color: #666; margin-bottom: 8px; padding: 8px; background: white; border-radius: 4px;">
+                      <strong>Position:</strong> <span id="cropPositionDisplay">Drag rectangle to position</span>
+                    </div>
+
+                    <div style="font-size: 0.75em; color: #666; margin-bottom: 12px; padding: 8px; background: white; border-radius: 4px;">
+                      <strong>Actual Size:</strong> <span id="cropActualSize">300 × 400 mm</span>
+                    </div>
+
+                    <button id="applyCropBtn" class="export-btn" style="background: #28a745;">
+                      Apply Crop
+                    </button>
+                  </div>
+                </div>
+
                 <button id="exportSvgBtn" class="export-btn">Export SVG</button>
                 <div id="exportStatus" class="export-status"></div>
 
@@ -788,7 +823,17 @@
                 <button id="zoomResetBtn" class="zoom-btn" title="Reset Zoom">⟲</button>
               </div>
             </div>
-            <div id="mapPreview" class="map-preview"></div>
+            <div id="mapPreview" class="map-preview">
+              <!-- Upload placeholder shown when no PDF is loaded -->
+              <div id="uploadPlaceholder" class="upload-placeholder">
+                <div class="upload-placeholder-content">
+                  <h2 style="font-size: 1.3em; margin-bottom: 12px; color: #333;">Upload GeoPDF File</h2>
+                  <p style="margin: 8px 0 20px 0; color: #666; font-size: 0.95em; max-width: 400px;">Select a GeoPDF file to extract and visualize raster and vector layers</p>
+                  <button id="uploadBtn" class="upload-btn">Choose PDF File</button>
+                  <div id="status" class="status"></div>
+                </div>
+              </div>
+            </div>
             <div id="mapStats" class="map-stats"></div>
           </div>
         </div>

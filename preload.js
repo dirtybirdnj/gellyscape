@@ -18,5 +18,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Export operations
   exportRaster: (data) => ipcRenderer.invoke('export:raster', data),
-  exportVector: (data) => ipcRenderer.invoke('export:vector', data)
+  exportVector: (data) => ipcRenderer.invoke('export:vector', data),
+
+  // vpype operations
+  checkVpype: () => ipcRenderer.invoke('vpype:check'),
+  cropWithVpype: (data) => ipcRenderer.invoke('vpype:crop', data)
 });

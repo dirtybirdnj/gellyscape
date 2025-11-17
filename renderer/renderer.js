@@ -11,6 +11,18 @@ let startPanX = 0;
 let startPanY = 0;
 let cachedBounds = null; // Cache the initial bounds to prevent jumping
 
+// Crop mode state
+let cropModeEnabled = false;
+let cropRectangle = null; // SVG element for crop overlay
+let cropX = 0;
+let cropY = 0;
+let cropWidth = 300; // mm
+let cropHeight = 400; // mm
+let cropScale = 1.0;
+let isDraggingCrop = false;
+let cropDragStartX = 0;
+let cropDragStartY = 0;
+
 // Layer categorization - defines which layers are plottable vector data vs overlays/annotations
 // Plottable layers: Physical map features suitable for pen plotting
 // Overlay layers: Text, labels, shields, grids, and other annotation elements
@@ -107,7 +119,7 @@ function isOverlayLayer(layerName) {
 
 // DOM elements
 const uploadBtn = document.getElementById('uploadBtn');
-const uploadSection = document.querySelector('.upload-section');
+const uploadPlaceholder = document.getElementById('uploadPlaceholder');
 const statusDiv = document.getElementById('status');
 const resultsDiv = document.getElementById('results');
 const metadataDiv = document.getElementById('metadata');
@@ -137,6 +149,18 @@ const fileSizeDiv = document.getElementById('fileSize');
 const vectorCountBadge = document.getElementById('vectorCountBadge');
 const overlayCountBadge = document.getElementById('overlayCountBadge');
 
+// Crop mode elements
+const cropModeBtn = document.getElementById('cropModeBtn');
+const cropModeLabel = document.getElementById('cropModeLabel');
+const cropControls = document.getElementById('cropControls');
+const cropWidthInput = document.getElementById('cropWidthInput');
+const cropHeightInput = document.getElementById('cropHeightInput');
+const cropScaleSlider = document.getElementById('cropScaleSlider');
+const cropScaleValue = document.getElementById('cropScaleValue');
+const cropPositionDisplay = document.getElementById('cropPositionDisplay');
+const cropActualSize = document.getElementById('cropActualSize');
+const applyCropBtn = document.getElementById('applyCropBtn');
+
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
 exportSvgBtn.addEventListener('click', handleExportSVG);
@@ -149,6 +173,13 @@ deselectAllLayersBtn.addEventListener('click', deselectAllLayers);
 selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
 deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
 
+// Crop mode event listeners
+cropModeBtn.addEventListener('click', toggleCropMode);
+cropWidthInput.addEventListener('input', updateCropDimensions);
+cropHeightInput.addEventListener('input', updateCropDimensions);
+cropScaleSlider.addEventListener('input', updateCropScale);
+applyCropBtn.addEventListener('click', applyCrop);
+
 // Panning event listeners
 mapPreviewDiv.addEventListener('mousedown', startPan);
 mapPreviewDiv.addEventListener('mousemove', doPan);
@@ -160,6 +191,16 @@ mapPreviewDiv.addEventListener('wheel', handleWheel);
 
 // Tab switching
 function switchTab(tabName) {
+  // If switching away from export tab and crop mode is enabled, disable it
+  if (cropModeEnabled) {
+    cropModeEnabled = false;
+    cropModeLabel.textContent = 'Crop';
+    cropModeBtn.style.background = '';
+    cropControls.style.display = 'none';
+    removeCropRectangle();
+    mapPreviewDiv.addEventListener('mousedown', handleMouseDown);
+  }
+
   // Hide all tab panels
   document.querySelectorAll('.tab-panel').forEach(panel => {
     panel.classList.remove('active');
@@ -242,8 +283,8 @@ async function handleUpload() {
     // Display results
     displayResults(result.data);
 
-    // Hide upload section after successful processing
-    uploadSection.style.display = 'none';
+    // Hide upload placeholder after successful processing
+    uploadPlaceholder.classList.add('hidden');
     hideStatus();
     document.body.style.cursor = 'default';
 
@@ -256,9 +297,7 @@ async function handleUpload() {
 }
 
 function displayResults(data) {
-  // Hide upload section and show results
-  uploadSection.classList.add('hidden');
-  resultsDiv.classList.add('active');
+  // Show toolbar
   toolbarDiv.style.display = 'flex';
 
   // Reset cached bounds for new PDF
@@ -452,16 +491,20 @@ function displayLayerControls() {
 function createLayerControlItem(layerName) {
   const layerItem = document.createElement('div');
   layerItem.className = 'layer-item';
-  layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+  layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px; position: relative;';
 
   // Parse layerName to extract base name and color
   const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
 
-  // Calculate path count for this specific color sublayer
+  // Calculate path count and feature statistics for this specific color sublayer
   let pathCount = 0;
+  let totalOperations = 0;
+  let hasStroke = 0;
+  let hasFill = 0;
+
   if (currentPDFData && currentPDFData.contentPaths) {
     const paths = currentPDFData.contentPaths.paths;
-    pathCount = paths.filter(p => {
+    const matchingPaths = paths.filter(p => {
       if (p.layer !== baseName) return false;
       if (!colorStr) return true;  // No color filter, count all
 
@@ -473,7 +516,16 @@ function createLayerControlItem(layerName) {
         pathColor = `rgb(${p.fillColor.join(',')})`;
       }
       return pathColor === colorStr;
-    }).length;
+    });
+
+    pathCount = matchingPaths.length;
+
+    // Calculate additional statistics
+    matchingPaths.forEach(p => {
+      if (p.operations) totalOperations += p.operations.length;
+      if (p.stroke) hasStroke++;
+      if (p.fill) hasFill++;
+    });
   }
 
   // Path count badge on the left (outside the checkbox container)
@@ -511,7 +563,13 @@ function createLayerControlItem(layerName) {
   const label = document.createElement('label');
   label.className = 'checkbox-label';
   label.htmlFor = `layer-${safeId}`;
-  label.style.cssText = 'flex: 1; min-width: 0;';
+  label.style.cssText = 'flex: 1; min-width: 0; cursor: help;';
+
+  // Build detailed tooltip with statistics
+  const avgOps = pathCount > 0 ? (totalOperations / pathCount).toFixed(1) : 0;
+  const featureType = hasStroke > hasFill ? 'lines' : hasFill > hasStroke ? 'fills' : 'mixed';
+  const tooltipText = `${pathCount} paths • ${totalOperations.toLocaleString()} operations • Avg ${avgOps} ops/path • Type: ${featureType}`;
+  label.title = tooltipText;
 
   const span = document.createElement('span');
   // Display descriptive name based on base layer + color
@@ -688,14 +746,26 @@ function updateExportLayersList() {
     return;
   }
 
-  // Count paths per enabled layer
+  // Count paths per enabled color sublayer
   const layerPathCounts = {};
   if (currentPDFData && currentPDFData.contentPaths) {
     const paths = currentPDFData.contentPaths.paths;
     paths.forEach(path => {
-      const layerName = path.layer || 'Unknown';
-      if (enabledLayers.has(layerName)) {
-        layerPathCounts[layerName] = (layerPathCounts[layerName] || 0) + 1;
+      const baseName = path.layer || 'Unknown';
+
+      // Determine the color for this path (prefer stroke, fall back to fill)
+      let pathColor = null;
+      if (path.stroke && path.strokeColor) {
+        pathColor = `rgb(${path.strokeColor.join(',')})`;
+      } else if (path.fill && path.fillColor) {
+        pathColor = `rgb(${path.fillColor.join(',')})`;
+      }
+
+      if (pathColor) {
+        const sublayerName = `${baseName}::${pathColor}`;
+        if (enabledLayers.has(sublayerName)) {
+          layerPathCounts[sublayerName] = (layerPathCounts[sublayerName] || 0) + 1;
+        }
       }
     });
   }
@@ -1000,31 +1070,113 @@ function generateSVG(isExport) {
 
   // Store crop bounds for later use (after path generation)
   // Crop mask is added when checkbox is checked (both preview and export)
-  // User can then manually process it in vector editors
+  // This creates a clipping guide without obscuring underlying content
   let cropMaskSvg = '';
-  if (cropMaskCheck.checked) {
-    // Calculate crop area - typically the inner map area excluding collar
-    // For now, we'll inset by 5% on each side as a reasonable default
-    const cropInset = Math.min(width, height) * 0.05;
-    const cropX = minX + cropInset;
-    const cropY = minY + cropInset;
-    const cropWidth = width - (cropInset * 2);
-    const cropHeight = height - (cropInset * 2);
+  let cropClipPathToAdd = '';
 
-    // Create a semi-transparent white frame around the crop area
-    // This is a box with a hole cut out - the underlying layers are NOT cropped
-    // User can manually process this mask layer in vector editors (Inkscape, Illustrator, etc.)
-    cropMaskSvg += `  <g id="crop-mask" data-description="Crop guide - delete or use as clipping mask in vector editor">\n`;
-    // Top bar
-    cropMaskSvg += `    <rect x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${cropY - (minY - padding)}" fill="white" opacity="0.7"/>\n`;
-    // Bottom bar
-    cropMaskSvg += `    <rect x="${minX - padding}" y="${cropY + cropHeight}" width="${width + padding * 2}" height="${(maxY + padding) - (cropY + cropHeight)}" fill="white" opacity="0.7"/>\n`;
-    // Left bar
-    cropMaskSvg += `    <rect x="${minX - padding}" y="${cropY}" width="${cropX - (minX - padding)}" height="${cropHeight}" fill="white" opacity="0.7"/>\n`;
-    // Right bar
-    cropMaskSvg += `    <rect x="${cropX + cropWidth}" y="${cropY}" width="${(maxX + padding) - (cropX + cropWidth)}" height="${cropHeight}" fill="white" opacity="0.7"/>\n`;
-    // Add border outline for the crop area
-    cropMaskSvg += `    <rect x="${cropX}" y="${cropY}" width="${cropWidth}" height="${cropHeight}" fill="none" stroke="red" stroke-width="2" stroke-dasharray="10,5"/>\n`;
+  if (cropMaskCheck.checked) {
+    // Calculate crop area for the rendered content
+    let cropX, cropY, cropWidth, cropHeight;
+
+    const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+    const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+    const mediaBoxData = pageBoxes?.mediaBox;
+
+    if (cropBoxData && mediaBoxData) {
+      // Calculate the crop area relative to our rendered bounds
+      // The CropBox defines which portion of the MediaBox to display
+      // We need to map this ratio to our actual rendered content bounds
+
+      const mediaWidth = mediaBoxData.width;
+      const mediaHeight = mediaBoxData.height;
+
+      // Calculate crop box position relative to MediaBox
+      const cropLeftRatio = (cropBoxData.x - mediaBoxData.x) / mediaWidth;
+      const cropBottomRatio = (cropBoxData.y - mediaBoxData.y) / mediaHeight;
+      const cropWidthRatio = cropBoxData.width / mediaWidth;
+      const cropHeightRatio = cropBoxData.height / mediaHeight;
+
+      // Apply these ratios to our rendered content bounds
+      cropX = minX + (width * cropLeftRatio);
+      cropY = minY + (height * cropBottomRatio);
+      cropWidth = width * cropWidthRatio;
+      cropHeight = height * cropHeightRatio;
+
+      console.log('Using PDF CropBox ratios:', {
+        cropBoxData,
+        mediaBoxData,
+        ratios: { cropLeftRatio, cropBottomRatio, cropWidthRatio, cropHeightRatio },
+        result: { cropX, cropY, cropWidth, cropHeight }
+      });
+    } else {
+      // Fallback: Calculate crop area with 5% inset on each side
+      const cropInset = Math.min(width, height) * 0.05;
+      cropX = minX + cropInset;
+      cropY = minY + cropInset;
+      cropWidth = width - (cropInset * 2);
+      cropHeight = height - (cropInset * 2);
+      console.log('Using calculated crop area (5% inset)');
+    }
+
+    // Define a clipping path that can be applied to content in vector editors
+    cropClipPathToAdd += `  <defs>\n`;
+    cropClipPathToAdd += `    <clipPath id="map-crop-area">\n`;
+    cropClipPathToAdd += `      <rect x="${cropX}" y="${cropY}" width="${cropWidth}" height="${cropHeight}"/>\n`;
+    cropClipPathToAdd += `    </clipPath>\n`;
+    cropClipPathToAdd += `  </defs>\n`;
+
+    // Create a subtle overlay frame that preserves background visibility
+    // Uses semi-transparent gray instead of white to maintain readability of all layers
+    // Important: Use viewBox bounds (minX/minY/maxX/maxY + padding), not cropBox for the frame
+    const viewBoxMinX = minX - padding;
+    const viewBoxMinY = minY - padding;
+    const viewBoxMaxX = maxX + padding;
+    const viewBoxMaxY = maxY + padding;
+
+    cropMaskSvg += `  <g id="crop-guide" data-description="Crop guide - shows suggested print area. Remove or apply clipPath='url(#map-crop-area)' to content groups in vector editor">\n`;
+
+    // Top bar - covers area above crop box
+    const topBarHeight = Math.max(0, cropY - viewBoxMinY);
+    if (topBarHeight > 0) {
+      cropMaskSvg += `    <rect x="${viewBoxMinX}" y="${viewBoxMinY}" width="${viewBoxMaxX - viewBoxMinX}" height="${topBarHeight}" fill="black" opacity="0.15"/>\n`;
+    }
+
+    // Bottom bar - covers area below crop box
+    const bottomBarY = cropY + cropHeight;
+    const bottomBarHeight = Math.max(0, viewBoxMaxY - bottomBarY);
+    if (bottomBarHeight > 0) {
+      cropMaskSvg += `    <rect x="${viewBoxMinX}" y="${bottomBarY}" width="${viewBoxMaxX - viewBoxMinX}" height="${bottomBarHeight}" fill="black" opacity="0.15"/>\n`;
+    }
+
+    // Left bar - covers area left of crop box
+    const leftBarWidth = Math.max(0, cropX - viewBoxMinX);
+    if (leftBarWidth > 0) {
+      cropMaskSvg += `    <rect x="${viewBoxMinX}" y="${cropY}" width="${leftBarWidth}" height="${cropHeight}" fill="black" opacity="0.15"/>\n`;
+    }
+
+    // Right bar - covers area right of crop box
+    const rightBarX = cropX + cropWidth;
+    const rightBarWidth = Math.max(0, viewBoxMaxX - rightBarX);
+    if (rightBarWidth > 0) {
+      cropMaskSvg += `    <rect x="${rightBarX}" y="${cropY}" width="${rightBarWidth}" height="${cropHeight}" fill="black" opacity="0.15"/>\n`;
+    }
+    // Add prominent border outline for the crop area
+    cropMaskSvg += `    <rect x="${cropX}" y="${cropY}" width="${cropWidth}" height="${cropHeight}" fill="none" stroke="red" stroke-width="3" stroke-dasharray="12,6" opacity="0.8"/>\n`;
+    // Add corner markers for precise alignment
+    const markerSize = 20;
+    const markerStroke = 'stroke="red" stroke-width="2" fill="none"';
+    // Top-left corner
+    cropMaskSvg += `    <line x1="${cropX}" y1="${cropY}" x2="${cropX + markerSize}" y2="${cropY}" ${markerStroke}/>\n`;
+    cropMaskSvg += `    <line x1="${cropX}" y1="${cropY}" x2="${cropX}" y2="${cropY + markerSize}" ${markerStroke}/>\n`;
+    // Top-right corner
+    cropMaskSvg += `    <line x1="${cropX + cropWidth}" y1="${cropY}" x2="${cropX + cropWidth - markerSize}" y2="${cropY}" ${markerStroke}/>\n`;
+    cropMaskSvg += `    <line x1="${cropX + cropWidth}" y1="${cropY}" x2="${cropX + cropWidth}" y2="${cropY + markerSize}" ${markerStroke}/>\n`;
+    // Bottom-left corner
+    cropMaskSvg += `    <line x1="${cropX}" y1="${cropY + cropHeight}" x2="${cropX + markerSize}" y2="${cropY + cropHeight}" ${markerStroke}/>\n`;
+    cropMaskSvg += `    <line x1="${cropX}" y1="${cropY + cropHeight}" x2="${cropX}" y2="${cropY + cropHeight - markerSize}" ${markerStroke}/>\n`;
+    // Bottom-right corner
+    cropMaskSvg += `    <line x1="${cropX + cropWidth}" y1="${cropY + cropHeight}" x2="${cropX + cropWidth - markerSize}" y2="${cropY + cropHeight}" ${markerStroke}/>\n`;
+    cropMaskSvg += `    <line x1="${cropX + cropWidth}" y1="${cropY + cropHeight}" x2="${cropX + cropWidth}" y2="${cropY + cropHeight - markerSize}" ${markerStroke}/>\n`;
     cropMaskSvg += `  </g>\n`;
   }
 
@@ -1046,17 +1198,42 @@ function generateSVG(isExport) {
     pathsByLayer[sublayerName].push(path);
   });
 
-  // Generate path elements grouped by color sublayer
-  // Render in REVERSE order of allLayers array - layers at top of UI list render last (appear on top)
-  // This ensures proper z-ordering where later layers in the UI appear above earlier ones
-  const layersToRender = allLayers.slice().reverse().filter(layer => pathsByLayer[layer]);
+  // Generate path elements grouped by color sublayer with proper z-ordering
+  // Strategy: Render vector layers first (bottom), then overlay layers (top)
+  // Within each group, render in reverse order so UI list order matches visual stacking
+
+  const vectorLayersToRender = [];
+  const overlayLayersToRender = [];
+
+  // Separate layers into vector and overlay groups
+  allLayers.slice().reverse().forEach(layer => {
+    if (pathsByLayer[layer]) {
+      if (isOverlayLayer(layer)) {
+        overlayLayersToRender.push(layer);
+      } else {
+        vectorLayersToRender.push(layer);
+      }
+    }
+  });
 
   // Add any layers not in allLayers (shouldn't happen, but failsafe)
   Object.keys(pathsByLayer).forEach(layerName => {
-    if (!layersToRender.includes(layerName)) {
-      layersToRender.push(layerName);
+    if (!vectorLayersToRender.includes(layerName) && !overlayLayersToRender.includes(layerName)) {
+      if (isOverlayLayer(layerName)) {
+        overlayLayersToRender.push(layerName);
+      } else {
+        vectorLayersToRender.push(layerName);
+      }
     }
   });
+
+  // Combine: vector layers first (bottom), then overlay layers (top)
+  const layersToRender = [...vectorLayersToRender, ...overlayLayersToRender];
+
+  // Add the clip path definition before content
+  if (cropClipPathToAdd) {
+    svg += cropClipPathToAdd;
+  }
 
   layersToRender.forEach(layerName => {
     svg += `  <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
@@ -1515,3 +1692,466 @@ function toggleCollapse(contentId) {
 
 // Make toggleCollapse available globally for inline onclick handlers
 window.toggleCollapse = toggleCollapse;
+
+// ============================================================================
+// CROP MODE FUNCTIONS
+// ============================================================================
+
+function toggleCropMode() {
+  cropModeEnabled = !cropModeEnabled;
+
+  if (cropModeEnabled) {
+    // Enable crop mode
+    cropModeLabel.textContent = 'Disable Crop';
+    cropModeBtn.style.background = '#dc3545';
+    cropControls.style.display = 'block';
+
+    // Create crop rectangle overlay
+    createCropRectangle();
+
+    // Disable panning while in crop mode
+    mapPreviewDiv.removeEventListener('mousedown', handleMouseDown);
+  } else {
+    // Disable crop mode
+    cropModeLabel.textContent = 'Crop';
+    cropModeBtn.style.background = '';
+    cropControls.style.display = 'none';
+
+    // Remove crop rectangle overlay
+    removeCropRectangle();
+
+    // Re-enable panning
+    mapPreviewDiv.addEventListener('mousedown', handleMouseDown);
+  }
+}
+
+function createCropRectangle() {
+  // Find the SVG element in the map preview
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  // Get viewBox to work in SVG coordinate space
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Use the cached bounds to get the actual content dimensions
+  // The crop mask uses the same coordinate system, so we can reference it
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+  const mediaBoxData = pageBoxes?.mediaBox;
+
+  // If we have crop box data, use those dimensions as reference for sizing
+  let referenceWidth, referenceHeight;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+    referenceHeight = cropBoxData.height;
+  } else {
+    // Fallback to viewBox dimensions
+    referenceWidth = vbWidth;
+    referenceHeight = vbHeight;
+  }
+
+  // Calculate crop rectangle size based on the reference dimensions
+  // Assume the reference is approximately 1000mm (standard map size)
+  const mmToSVGRatio = referenceWidth / 1000;
+  const rectWidth = cropWidth * mmToSVGRatio * cropScale;
+  const rectHeight = cropHeight * mmToSVGRatio * cropScale;
+
+  // Center the crop rectangle in the viewBox
+  cropX = vbMinX + (vbWidth - rectWidth) / 2;
+  cropY = vbMinY + (vbHeight - rectHeight) / 2;
+
+  // Create SVG group for crop overlay
+  const cropGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  cropGroup.id = 'crop-overlay';
+  cropGroup.style.pointerEvents = 'all'; // Ensure it receives mouse events
+
+  // Create the crop rectangle
+  cropRectangle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  cropRectangle.setAttribute('id', 'crop-rectangle');
+  cropRectangle.setAttribute('x', cropX);
+  cropRectangle.setAttribute('y', cropY);
+  cropRectangle.setAttribute('width', rectWidth);
+  cropRectangle.setAttribute('height', rectHeight);
+  cropRectangle.setAttribute('fill', 'rgba(255, 0, 0, 0.05)'); // Very light red fill for better visibility
+  cropRectangle.setAttribute('stroke', '#ff0000');
+  cropRectangle.setAttribute('stroke-width', '3');
+  cropRectangle.setAttribute('stroke-dasharray', '10,5');
+  cropRectangle.style.cursor = 'move';
+  cropRectangle.style.pointerEvents = 'all';
+
+  // Add corner handles
+  const handleSize = 12;
+  const corners = [
+    { x: 0, y: 0, cursor: 'nw-resize' },
+    { x: 1, y: 0, cursor: 'ne-resize' },
+    { x: 0, y: 1, cursor: 'sw-resize' },
+    { x: 1, y: 1, cursor: 'se-resize' }
+  ];
+
+  corners.forEach((corner, index) => {
+    const handle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    handle.setAttribute('width', handleSize);
+    handle.setAttribute('height', handleSize);
+    handle.setAttribute('fill', '#ff0000');
+    handle.setAttribute('stroke', '#ffffff');
+    handle.setAttribute('stroke-width', '2');
+    handle.style.cursor = corner.cursor;
+    handle.style.pointerEvents = 'all';
+    handle.dataset.corner = index;
+    cropGroup.appendChild(handle);
+  });
+
+  cropGroup.appendChild(cropRectangle);
+
+  // Append to SVG (will be last element, on top)
+  svgElement.appendChild(cropGroup);
+
+  // Add drag event listeners
+  cropRectangle.addEventListener('mousedown', startCropDrag);
+
+  // Update displays
+  updatePositionDisplay();
+  updateActualSizeDisplay();
+}
+
+function removeCropRectangle() {
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  const cropGroup = svgElement.querySelector('#crop-overlay');
+  if (cropGroup) {
+    cropGroup.remove();
+  }
+  cropRectangle = null;
+}
+
+function startCropDrag(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  isDraggingCrop = true;
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  // Get viewBox for coordinate space
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get SVG bounding box on screen
+  const svgRect = svgElement.getBoundingClientRect();
+
+  // Convert mouse position to SVG viewBox coordinates
+  const mouseX = e.clientX - svgRect.left;
+  const mouseY = e.clientY - svgRect.top;
+
+  // Scale from screen pixels to viewBox coordinates
+  const scaleX = vbWidth / svgRect.width;
+  const scaleY = vbHeight / svgRect.height;
+
+  const mouseSVGX = vbMinX + (mouseX * scaleX);
+  const mouseSVGY = vbMinY + (mouseY * scaleY);
+
+  // Store the offset from the mouse to the rectangle's top-left corner
+  cropDragStartX = mouseSVGX - cropX;
+  cropDragStartY = mouseSVGY - cropY;
+
+  // Add document-level event listeners
+  document.addEventListener('mousemove', handleCropDrag);
+  document.addEventListener('mouseup', endCropDrag);
+}
+
+function handleCropDrag(e) {
+  if (!isDraggingCrop) return;
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement || !cropRectangle) return;
+
+  // Get viewBox for coordinate space
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get SVG bounding box on screen
+  const svgRect = svgElement.getBoundingClientRect();
+
+  // Convert mouse position to SVG viewBox coordinates
+  const mouseX = e.clientX - svgRect.left;
+  const mouseY = e.clientY - svgRect.top;
+
+  // Scale from screen pixels to viewBox coordinates
+  const scaleX = vbWidth / svgRect.width;
+  const scaleY = vbHeight / svgRect.height;
+
+  const mouseSVGX = vbMinX + (mouseX * scaleX);
+  const mouseSVGY = vbMinY + (mouseY * scaleY);
+
+  // Calculate new position
+  cropX = mouseSVGX - cropDragStartX;
+  cropY = mouseSVGY - cropDragStartY;
+
+  // Constrain to viewBox bounds
+  const rectWidth = parseFloat(cropRectangle.getAttribute('width'));
+  const rectHeight = parseFloat(cropRectangle.getAttribute('height'));
+  cropX = Math.max(vbMinX, Math.min(cropX, vbMinX + vbWidth - rectWidth));
+  cropY = Math.max(vbMinY, Math.min(cropY, vbMinY + vbHeight - rectHeight));
+
+  // Update rectangle position
+  cropRectangle.setAttribute('x', cropX);
+  cropRectangle.setAttribute('y', cropY);
+
+  // Update corner handles
+  updateCornerHandles();
+
+  // Update position display
+  updatePositionDisplay();
+}
+
+function endCropDrag() {
+  isDraggingCrop = false;
+  document.removeEventListener('mousemove', handleCropDrag);
+  document.removeEventListener('mouseup', endCropDrag);
+}
+
+function updateCornerHandles() {
+  const cropGroup = mapPreviewDiv.querySelector('#crop-overlay');
+  if (!cropGroup || !cropRectangle) return;
+
+  const handles = cropGroup.querySelectorAll('rect:not(#crop-rectangle)');
+  const rectWidth = parseFloat(cropRectangle.getAttribute('width'));
+  const rectHeight = parseFloat(cropRectangle.getAttribute('height'));
+  const handleSize = 12;
+
+  const positions = [
+    { x: cropX - handleSize/2, y: cropY - handleSize/2 },
+    { x: cropX + rectWidth - handleSize/2, y: cropY - handleSize/2 },
+    { x: cropX - handleSize/2, y: cropY + rectHeight - handleSize/2 },
+    { x: cropX + rectWidth - handleSize/2, y: cropY + rectHeight - handleSize/2 }
+  ];
+
+  handles.forEach((handle, index) => {
+    if (positions[index]) {
+      handle.setAttribute('x', positions[index].x);
+      handle.setAttribute('y', positions[index].y);
+    }
+  });
+}
+
+function updatePositionDisplay() {
+  if (!cropRectangle) {
+    cropPositionDisplay.textContent = 'Drag rectangle to position';
+    return;
+  }
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get reference dimensions for mm conversion
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+
+  let referenceWidth;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+  } else {
+    referenceWidth = vbWidth;
+  }
+
+  // Calculate mm to SVG ratio
+  const mmToSVGRatio = referenceWidth / 1000;
+
+  // Convert crop position from viewBox coordinates to mm
+  const xMM = Math.round((cropX - vbMinX) / mmToSVGRatio);
+  const yMM = Math.round((cropY - vbMinY) / mmToSVGRatio);
+
+  cropPositionDisplay.textContent = `X: ${xMM}mm, Y: ${yMM}mm`;
+}
+
+function updateActualSizeDisplay() {
+  const actualWidth = Math.round(cropWidth * cropScale);
+  const actualHeight = Math.round(cropHeight * cropScale);
+  cropActualSize.textContent = `${actualWidth} × ${actualHeight} mm`;
+}
+
+function updateCropDimensions() {
+  cropWidth = parseFloat(cropWidthInput.value) || 300;
+  cropHeight = parseFloat(cropHeightInput.value) || 400;
+
+  if (!cropRectangle) return;
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get reference dimensions
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+
+  let referenceWidth;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+  } else {
+    referenceWidth = vbWidth;
+  }
+
+  // Calculate new size in SVG coordinate space
+  const mmToSVGRatio = referenceWidth / 1000;
+  const rectWidth = cropWidth * mmToSVGRatio * cropScale;
+  const rectHeight = cropHeight * mmToSVGRatio * cropScale;
+
+  // Update rectangle size
+  cropRectangle.setAttribute('width', rectWidth);
+  cropRectangle.setAttribute('height', rectHeight);
+
+  // Update corner handles
+  updateCornerHandles();
+
+  // Update displays
+  updatePositionDisplay();
+  updateActualSizeDisplay();
+}
+
+function updateCropScale() {
+  const scalePercent = parseFloat(cropScaleSlider.value);
+  cropScale = scalePercent / 100;
+  cropScaleValue.textContent = scalePercent;
+
+  // Update crop dimensions with new scale
+  updateCropDimensions();
+}
+
+async function applyCrop() {
+  if (!cropRectangle) {
+    showExportStatus('Please enable crop mode first', 'error');
+    return;
+  }
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) {
+    showExportStatus('No map preview available', 'error');
+    return;
+  }
+
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get reference dimensions for mm conversion
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+
+  let referenceWidth;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+  } else {
+    referenceWidth = vbWidth;
+  }
+
+  // Calculate mm to SVG ratio
+  const mmToSVGRatio = referenceWidth / 1000;
+
+  // Convert crop rectangle position and size to mm
+  const xMM = Math.round((cropX - vbMinX) / mmToSVGRatio);
+  const yMM = Math.round((cropY - vbMinY) / mmToSVGRatio);
+  const widthMM = Math.round(cropWidth * cropScale);
+  const heightMM = Math.round(cropHeight * cropScale);
+
+  console.log('Crop parameters:', {
+    x: xMM,
+    y: yMM,
+    width: widthMM,
+    height: heightMM,
+    scale: cropScale
+  });
+
+  // Check if vpype is installed
+  showExportStatus('Checking for vpype...', 'info');
+
+  const vpypeCheck = await window.electronAPI.checkVpype();
+  if (!vpypeCheck.installed) {
+    showExportStatus('vpype is not installed. Please install vpype to use crop functionality.', 'error');
+    console.error('vpype not found:', vpypeCheck.error);
+    return;
+  }
+
+  console.log('vpype version:', vpypeCheck.version);
+
+  // Generate SVG with current layers
+  showExportStatus('Generating SVG...', 'info');
+
+  const svgContent = generateMapPreview(true);
+  if (!svgContent) {
+    showExportStatus('Failed to generate SVG', 'error');
+    return;
+  }
+
+  // Get paper size
+  const paperSize = document.getElementById('paperSizeSelect')?.value || 'original';
+
+  // Run vpype crop
+  showExportStatus('Running vpype crop...', 'info');
+
+  try {
+    const result = await window.electronAPI.cropWithVpype({
+      svgContent,
+      cropX: xMM,
+      cropY: yMM,
+      cropWidth: widthMM,
+      cropHeight: heightMM,
+      paperSize
+    });
+
+    if (!result.success) {
+      showExportStatus(`vpype error: ${result.error}`, 'error');
+      console.error('vpype stderr:', result.stderr);
+      return;
+    }
+
+    console.log('vpype output:', result.stdout);
+
+    // Prompt user to save the cropped SVG
+    const saveResult = await window.electronAPI.exportVector({
+      defaultPath: `cropped-${Date.now()}.svg`,
+      filters: [{ name: 'SVG', extensions: ['svg'] }]
+    });
+
+    if (saveResult.canceled) {
+      showExportStatus('Crop cancelled', 'info');
+      return;
+    }
+
+    // Save the cropped SVG
+    const writeResult = await window.electronAPI.saveFile({
+      filePath: saveResult.filePath,
+      content: result.svg
+    });
+
+    if (writeResult.success) {
+      showExportStatus(`Cropped SVG saved: ${saveResult.filePath}`, 'success');
+
+      // Disable crop mode after successful crop
+      toggleCropMode();
+    } else {
+      showExportStatus(`Failed to save: ${writeResult.error}`, 'error');
+    }
+  } catch (error) {
+    showExportStatus(`Error: ${error.message}`, 'error');
+    console.error('Crop error:', error);
+  }
+}

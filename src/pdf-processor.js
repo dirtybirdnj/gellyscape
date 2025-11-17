@@ -119,12 +119,33 @@ class PDFProcessor {
         const bleedBox = pageDict.get(PDFName.of('BleedBox'));
         const artBox = pageDict.get(PDFName.of('ArtBox'));
 
+        // Extract actual box coordinates
+        const extractBox = (box) => {
+          if (!box) return null;
+          try {
+            const coords = box.asArray().map(n => n.asNumber());
+            return {
+              x: coords[0],
+              y: coords[1],
+              width: coords[2] - coords[0],
+              height: coords[3] - coords[1]
+            };
+          } catch (e) {
+            return null;
+          }
+        };
+
         this.metadata.pageBoxes = {
           hasMediaBox: !!mediaBox,
           hasCropBox: !!cropBox,
           hasTrimBox: !!trimBox,
           hasBleedBox: !!bleedBox,
-          hasArtBox: !!artBox
+          hasArtBox: !!artBox,
+          mediaBox: extractBox(mediaBox),
+          cropBox: extractBox(cropBox),
+          trimBox: extractBox(trimBox),
+          bleedBox: extractBox(bleedBox),
+          artBox: extractBox(artBox)
         };
       }
 

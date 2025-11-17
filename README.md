@@ -157,6 +157,28 @@ The SVG conversion test will:
 3. Check that the Y-axis transformation is working (PDF bottom-left → SVG top-left)
 4. Review the console output for conversion statistics
 
+## Sample GeoPDF Files
+
+### USGS Topographic Map Repository
+Access the complete USGS US Topo map collection:
+- **Public S3 Bucket**: [https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Maps/USTopo/PDF/](https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Maps/USTopo/PDF/)
+- Contains all US topographic maps in GeoPDF format
+- Organized by state and quadrangle name
+- Current and historical editions available
+- Free public access for testing and use
+
+### USGS Layer Metadata & Standards
+For detailed layer specifications and metadata:
+- **ArcGIS REST Service**: [https://index.nationalmap.gov/arcgis/rest/services/USTopoAvailability/MapServer](https://index.nationalmap.gov/arcgis/rest/services/USTopoAvailability/MapServer)
+- **Layer Definitions**: [https://index.nationalmap.gov/arcgis/rest/services/USTopoAvailability/MapServer/layers](https://index.nationalmap.gov/arcgis/rest/services/USTopoAvailability/MapServer/layers)
+- Provides standardized layer naming conventions and structure
+- Useful for understanding GeoPDF layer organization
+
+### Example Test Files
+The repository includes sample files:
+- `samples/VT_Burlington_20240809_TM_geo.pdf` - Vermont, Burlington quadrangle (40MB)
+- `samples/TX_Austin_East_20220811_TM_geo.pdf` - Texas, Austin East quadrangle
+
 ## Usage
 
 1. **Launch** the application
