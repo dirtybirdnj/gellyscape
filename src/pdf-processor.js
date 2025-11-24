@@ -4,6 +4,7 @@ const zlib = require('zlib');
 const RasterExtractor = require('./raster-extractor');
 const VectorExtractor = require('./vector-extractor');
 const PDFContentParser = require('./pdf-content-parser');
+const USGSFormatDetector = require('./usgs-format-detector');
 
 class PDFProcessor {
   constructor(buffer) {
@@ -83,6 +84,10 @@ class PDFProcessor {
 
   async extractMetadata(pdfData) {
     try {
+      // Detect USGS format
+      const formatDetector = new USGSFormatDetector(this.pdfDoc, pdfData.info);
+      const formatInfo = await formatDetector.detect();
+
       // Extract basic PDF metadata
       this.metadata = {
         title: pdfData.info?.Title || 'Unknown',
@@ -92,7 +97,9 @@ class PDFProcessor {
         modificationDate: pdfData.info?.ModDate || null,
         pageCount: pdfData.numpages,
         version: pdfData.info?.PDFFormatVersion || 'Unknown',
-        fileSize: this.buffer.length // File size in bytes
+        fileSize: this.buffer.length, // File size in bytes
+        // USGS format information
+        usgsFormat: formatInfo
       };
 
       // Extract page dimensions from first page
@@ -586,7 +593,8 @@ class PDFProcessor {
             const parser = new PDFContentParser({
               layerMap: mcToLayerMap,
               pdfContext: this.pdfDoc.context,
-              fontDict: fontDict
+              fontDict: fontDict,
+              resourcesDict: resources // Add resources for XObject support
             });
             const {paths, textObjects, fontDetails} = parser.parseContentStream(contentData);
 

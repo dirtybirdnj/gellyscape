@@ -32,6 +32,11 @@ class PDFContentParser {
     this.fontDict = options.fontDict;
     this.fontCMaps = {}; // Cache for parsed ToUnicode CMaps
     this.fontDetails = {}; // Map of font references to actual font names
+
+    // XObject support (for 2025 format)
+    this.resourcesDict = options.resourcesDict; // Resources dictionary for XObject lookup
+    this.xobjectRecursionDepth = 0; // Prevent infinite recursion
+    this.maxRecursionDepth = 10;
   }
 
   /**
@@ -283,6 +288,11 @@ class PDFContentParser {
       case 'DP': // define marked content point with properties
       case 'MP': // define marked content point
         // These are point markers, not sequences - we don't need to track them
+        break;
+
+      // XObject operators
+      case 'Do': // invoke XObject (Form or Image)
+        this.opInvokeXObject(operands);
         break;
 
       default:
@@ -929,7 +939,7 @@ class PDFContentParser {
       // Inspect font structure in detail (only log first few unique fonts)
       if (!this.inspectedFonts) {
         this.inspectedFonts = new Set();
-        this.shouldLogFonts = true; // Log first few fonts
+        this.shouldLogFonts = false; // Disable font logging to reduce console spam
       }
 
       // Extract and store BaseFont name for this font reference
@@ -1004,9 +1014,12 @@ class PDFContentParser {
       const mapping = this.parseCMap(cmapString);
 
       if (mapping) {
-        const count = Object.keys(mapping).length;
-        console.log(`  [CMap] ✓ Loaded "${cleanFontName}": ${count} character mappings`);
-      } else {
+        // CMap loaded successfully - only log if we're logging fonts
+        if (this.shouldLogFonts && this.inspectedFonts.size <= 3) {
+          const count = Object.keys(mapping).length;
+          console.log(`  [CMap] ✓ Loaded "${cleanFontName}": ${count} character mappings`);
+        }
+      } else if (this.shouldLogFonts && this.inspectedFonts.size <= 3) {
         console.log(`  [CMap] ✗ Failed to parse CMap for "${cleanFontName}"`);
       }
 
@@ -1087,6 +1100,161 @@ class PDFContentParser {
   }
 
   // Marked content operators (for layer tracking)
+
+  /**
+   * Do - Invoke XObject (Form XObject or Image XObject)
+   * Format: /Name Do
+   * Example: /Fm0 Do
+   */
+  opInvokeXObject(operands) {
+    if (operands.length < 1) return;
+    if (!this.resourcesDict || !this.pdfContext) return;
+
+    // Check recursion depth
+    if (this.xobjectRecursionDepth >= this.maxRecursionDepth) {
+      console.warn(`Maximum XObject recursion depth (${this.maxRecursionDepth}) reached, skipping`);
+      return;
+    }
+
+    const xobjName = operands[0]; // e.g., "/Fm0"
+
+    try {
+      // Get XObject dictionary from resources
+      const xobjectDict = this.resourcesDict.get(PDFName.of('XObject'));
+      if (!xobjectDict) {
+        console.log(`No XObject dictionary in resources`);
+        return;
+      }
+
+      const resolvedXObjDict = this.pdfContext.lookup(xobjectDict);
+      if (!resolvedXObjDict) return;
+
+      // Get the specific XObject by name (remove leading / from name)
+      const cleanName = xobjName.startsWith('/') ? xobjName.slice(1) : xobjName;
+      const xobjRef = resolvedXObjDict.get(PDFName.of(cleanName));
+      if (!xobjRef) {
+        console.log(`XObject ${cleanName} not found in resources`);
+        return;
+      }
+
+      const xobj = this.pdfContext.lookup(xobjRef);
+      if (!xobj || !xobj.dict) return;
+
+      // Check if this is a Form XObject or Image XObject
+      const subtype = xobj.dict.get(PDFName.of('Subtype'));
+      if (!subtype) return;
+
+      const subtypeStr = subtype.toString();
+
+      if (subtypeStr === '/Form') {
+        // Form XObject - contains graphics operators, parse recursively
+        // Only log at depth 0 to avoid console spam
+        if (this.xobjectRecursionDepth === 0) {
+          console.log(`  Invoking Form XObject: ${cleanName}`);
+        }
+
+        // Get the content stream from the Form XObject
+        const contents = xobj.getContents ? xobj.getContents() : xobj.contents;
+        if (!contents) {
+          return;
+        }
+
+        // Check for compression
+        const filter = xobj.dict.get(PDFName.of('Filter'));
+        let contentData;
+
+        if (filter && filter.toString() === '/FlateDecode') {
+          const zlib = require('zlib');
+          try {
+            contentData = zlib.inflateSync(Buffer.from(contents));
+            if (this.xobjectRecursionDepth === 0) {
+              console.log(`    Decompressed Form XObject: ${contents.length} → ${contentData.length} bytes`);
+            }
+          } catch (error) {
+            console.error(`    Failed to decompress Form XObject:`, error.message);
+            return;
+          }
+        } else {
+          contentData = Buffer.from(contents);
+        }
+
+        // Get Resources from the Form XObject (it may have its own resources)
+        const formResources = xobj.dict.get(PDFName.of('Resources'));
+        const resolvedFormResources = formResources ? this.pdfContext.lookup(formResources) : this.resourcesDict;
+
+        // Get Properties for layer mapping
+        const formProperties = resolvedFormResources?.get(PDFName.of('Properties'));
+        const formLayerMap = {};
+
+        if (formProperties) {
+          const propDict = this.pdfContext.lookup(formProperties);
+          if (propDict) {
+            const entries = propDict.entries ? Array.from(propDict.entries()) : [];
+
+            for (const [key, value] of entries) {
+              const mcName = key.toString();
+              const ocmdDict = this.pdfContext.lookup(value);
+
+              if (ocmdDict && ocmdDict.dict) {
+                const ocgsValue = ocmdDict.dict.get(PDFName.of('OCGs'));
+
+                if (ocgsValue) {
+                  let ocgRefArray = ocgsValue.array ? ocgsValue.array : [ocgsValue];
+
+                  if (ocgRefArray.length > 0) {
+                    const firstOcgRef = ocgRefArray[0];
+                    const ocgId = firstOcgRef.toString();
+
+                    // Use the parent's layer map if we have it
+                    if (this.layerMap[ocgId]) {
+                      formLayerMap[mcName] = this.layerMap[ocgId];
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Create a new parser for the Form XObject content
+        const formFontDict = resolvedFormResources?.get(PDFName.of('Font'));
+
+        const formParser = new PDFContentParser({
+          layerMap: Object.keys(formLayerMap).length > 0 ? formLayerMap : this.layerMap,
+          pdfContext: this.pdfContext,
+          fontDict: formFontDict || this.fontDict,
+          resourcesDict: resolvedFormResources
+        });
+
+        // Increment recursion depth
+        formParser.xobjectRecursionDepth = this.xobjectRecursionDepth + 1;
+
+        // Parse the Form XObject
+        const result = formParser.parseContentStream(contentData);
+
+        if (this.xobjectRecursionDepth === 0) {
+          console.log(`    Extracted ${result.paths.length} paths and ${result.textObjects.length} text objects from Form XObject`);
+        }
+
+        // Merge results into our paths and text objects
+        this.paths.push(...result.paths);
+        this.textObjects.push(...result.textObjects);
+
+        // Merge font details
+        Object.assign(this.fontDetails, result.fontDetails);
+
+      } else if (subtypeStr === '/Image') {
+        // Image XObject - raster image, skip for vector extraction
+        // Only log at depth 0
+        if (this.xobjectRecursionDepth === 0) {
+          console.log(`  Skipping Image XObject: ${cleanName}`);
+        }
+      }
+
+    } catch (error) {
+      console.error(`Error invoking XObject ${xobjName}:`, error.message);
+    }
+  }
 
   /**
    * BDC - Begin marked content sequence with property dict
