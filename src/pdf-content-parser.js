@@ -6,6 +6,20 @@
 
 const { PDFName } = require('pdf-lib');
 
+// Set to true for verbose debug logging (impacts performance on large files)
+const DEBUG_LOGGING = false;
+
+// Set to false to disable text extraction (improves performance)
+// Text data is preserved in the PDF but not extracted to reduce memory usage
+// TODO: Re-enable when single-line font path rendering is implemented
+const EXTRACT_TEXT = false;
+
+function debug(...args) {
+  if (DEBUG_LOGGING) {
+    console.log(...args);
+  }
+}
+
 class PDFContentParser {
   constructor(options = {}) {
     this.paths = [];
@@ -37,6 +51,15 @@ class PDFContentParser {
     this.resourcesDict = options.resourcesDict; // Resources dictionary for XObject lookup
     this.xobjectRecursionDepth = 0; // Prevent infinite recursion
     this.maxRecursionDepth = 10;
+
+    // Global OCG ref → layer name map (for resolving layers in Form XObjects)
+    // This is the master mapping from PDF object references to human-readable layer names
+    this.globalLayerNames = options.globalLayerNames || {};
+
+    // Initial CTM - used when parsing Form XObjects to inherit parent transform
+    if (options.initialCTM) {
+      this.graphicsState.ctm = { ...options.initialCTM };
+    }
   }
 
   /**
@@ -297,7 +320,7 @@ class PDFContentParser {
 
       default:
         // Unknown or unsupported operator
-        // console.log(`Unknown operator: ${operator}`);
+        // debug(`Unknown operator: ${operator}`);
         break;
     }
   }
@@ -750,6 +773,9 @@ class PDFContentParser {
 
   opShowText(operands) {
     // Tj: (string) - show a text string
+    // Skip if text extraction is disabled for performance
+    if (!EXTRACT_TEXT) return;
+
     if (operands.length >= 1 && this.inTextObject) {
       const rawText = operands[0];
       const textString = this.decodeTextString(rawText);
@@ -773,6 +799,9 @@ class PDFContentParser {
 
   opShowTextPositioned(operands) {
     // TJ: [(string) offset (string) offset ...] - show text with positioning
+    // Skip if text extraction is disabled for performance
+    if (!EXTRACT_TEXT) return;
+
     if (operands.length >= 1 && this.inTextObject) {
       const array = operands[0];
 
@@ -802,6 +831,9 @@ class PDFContentParser {
   }
 
   decodeTextString(pdfString) {
+    // Skip decoding if text extraction is disabled
+    if (!EXTRACT_TEXT) return '';
+
     // Check if this is a hex string (<...>) vs literal string (...)
     const isHexString = pdfString.startsWith('<') && pdfString.endsWith('>');
 
@@ -847,6 +879,9 @@ class PDFContentParser {
    * Decode text using font's ToUnicode CMap
    */
   decodeWithCMap(text, fontName) {
+    // Skip CMap decoding if text extraction is disabled
+    if (!EXTRACT_TEXT) return null;
+
     try {
       // Get or create CMap for this font
       if (!this.fontCMaps[fontName]) {
@@ -862,7 +897,7 @@ class PDFContentParser {
       const cmap = this.fontCMaps[fontName];
       if (!cmap) {
         if (!this.loggedNoCMap) {
-          console.log(`  [Text Debug] No CMap available for ${fontName} - using raw text`);
+          debug(`  [Text Debug] No CMap available for ${fontName} - using raw text`);
           this.loggedNoCMap = true;
         }
         return null;
@@ -895,7 +930,7 @@ class PDFContentParser {
       return result || null;
     } catch (error) {
       // If CMap decoding fails, return null to fall back to original string
-      console.log(`  [Text Debug] CMap decode error: ${error.message}`);
+      debug(`  [Text Debug] CMap decode error: ${error.message}`);
       return null;
     }
   }
@@ -907,7 +942,7 @@ class PDFContentParser {
     try {
       if (!this.fontDict) {
         if (!this.loggedCMapWarning) {
-          console.log(`  [CMap] No fontDict available - text won't be decoded`);
+          debug(`  [CMap] No fontDict available - text won't be decoded`);
           this.loggedCMapWarning = true;
         }
         return null;
@@ -924,7 +959,7 @@ class PDFContentParser {
           this.loggedMissingFonts = new Set();
         }
         if (!this.loggedMissingFonts.has(cleanFontName)) {
-          console.log(`  [CMap] Font "${cleanFontName}" not found in dictionary (tried PDFName.of("${cleanFontName}"))`);
+          debug(`  [CMap] Font "${cleanFontName}" not found in dictionary (tried PDFName.of("${cleanFontName}"))`);
           this.loggedMissingFonts.add(cleanFontName);
         }
         return null;
@@ -932,7 +967,7 @@ class PDFContentParser {
 
       const font = this.pdfContext.lookup(fontRef);
       if (!font || !font.dict) {
-        console.log(`  [CMap] Could not lookup font "${cleanFontName}"`);
+        debug(`  [CMap] Could not lookup font "${cleanFontName}"`);
         return null;
       }
 
@@ -951,17 +986,17 @@ class PDFContentParser {
       }
 
       if (!this.inspectedFonts.has(cleanFontName) && this.inspectedFonts.size < 3 && this.shouldLogFonts) {
-        console.log(`\n  [Font Info] "${cleanFontName}":`);
+        debug(`\n  [Font Info] "${cleanFontName}":`);
 
         // Get font properties
         const subtype = font.dict.get(PDFName.of('Subtype'));
         const encoding = font.dict.get(PDFName.of('Encoding'));
         const toUnicode = font.dict.get(PDFName.of('ToUnicode'));
 
-        console.log(`    Subtype: ${subtype ? subtype.toString() : 'none'}`);
-        console.log(`    BaseFont: ${baseFont ? baseFont.toString() : 'none'}`);
-        console.log(`    Encoding: ${encoding ? encoding.toString() : 'none'}`);
-        console.log(`    ToUnicode: ${toUnicode ? 'yes' : 'no'}`);
+        debug(`    Subtype: ${subtype ? subtype.toString() : 'none'}`);
+        debug(`    BaseFont: ${baseFont ? baseFont.toString() : 'none'}`);
+        debug(`    Encoding: ${encoding ? encoding.toString() : 'none'}`);
+        debug(`    ToUnicode: ${toUnicode ? 'yes' : 'no'}`);
       }
 
       this.inspectedFonts.add(cleanFontName);
@@ -975,7 +1010,7 @@ class PDFContentParser {
 
       const toUnicode = this.pdfContext.lookup(toUnicodeRef);
       if (!toUnicode) {
-        console.log(`  [CMap] Could not lookup ToUnicode stream for "${cleanFontName}"`);
+        debug(`  [CMap] Could not lookup ToUnicode stream for "${cleanFontName}"`);
         return null;
       }
 
@@ -993,7 +1028,7 @@ class PDFContentParser {
             try {
               cmapData = zlib.inflateSync(Buffer.from(cmapData));
             } catch (e) {
-              console.log(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
+              debug(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
             }
           }
         }
@@ -1004,7 +1039,7 @@ class PDFContentParser {
           try {
             cmapData = zlib.inflateSync(Buffer.from(cmapData));
           } catch (e) {
-            console.log(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
+            debug(`  [CMap] Decompression failed for "${cleanFontName}": ${e.message}`);
           }
         }
       }
@@ -1017,16 +1052,16 @@ class PDFContentParser {
         // CMap loaded successfully - only log if we're logging fonts
         if (this.shouldLogFonts && this.inspectedFonts.size <= 3) {
           const count = Object.keys(mapping).length;
-          console.log(`  [CMap] ✓ Loaded "${cleanFontName}": ${count} character mappings`);
+          debug(`  [CMap] ✓ Loaded "${cleanFontName}": ${count} character mappings`);
         }
       } else if (this.shouldLogFonts && this.inspectedFonts.size <= 3) {
-        console.log(`  [CMap] ✗ Failed to parse CMap for "${cleanFontName}"`);
+        debug(`  [CMap] ✗ Failed to parse CMap for "${cleanFontName}"`);
       }
 
       return mapping;
 
     } catch (error) {
-      console.log(`  [CMap] Error for ${fontName}: ${error.message}`);
+      debug(`  [CMap] Error for ${fontName}: ${error.message}`);
       return null;
     }
   }
@@ -1122,7 +1157,7 @@ class PDFContentParser {
       // Get XObject dictionary from resources
       const xobjectDict = this.resourcesDict.get(PDFName.of('XObject'));
       if (!xobjectDict) {
-        console.log(`No XObject dictionary in resources`);
+        debug(`No XObject dictionary in resources`);
         return;
       }
 
@@ -1133,7 +1168,7 @@ class PDFContentParser {
       const cleanName = xobjName.startsWith('/') ? xobjName.slice(1) : xobjName;
       const xobjRef = resolvedXObjDict.get(PDFName.of(cleanName));
       if (!xobjRef) {
-        console.log(`XObject ${cleanName} not found in resources`);
+        debug(`XObject ${cleanName} not found in resources`);
         return;
       }
 
@@ -1150,7 +1185,7 @@ class PDFContentParser {
         // Form XObject - contains graphics operators, parse recursively
         // Only log at depth 0 to avoid console spam
         if (this.xobjectRecursionDepth === 0) {
-          console.log(`  Invoking Form XObject: ${cleanName}`);
+          debug(`  Invoking Form XObject: ${cleanName}`);
         }
 
         // Get the content stream from the Form XObject
@@ -1168,7 +1203,7 @@ class PDFContentParser {
           try {
             contentData = zlib.inflateSync(Buffer.from(contents));
             if (this.xobjectRecursionDepth === 0) {
-              console.log(`    Decompressed Form XObject: ${contents.length} → ${contentData.length} bytes`);
+              debug(`    Decompressed Form XObject: ${contents.length} → ${contentData.length} bytes`);
             }
           } catch (error) {
             console.error(`    Failed to decompress Form XObject:`, error.message);
@@ -1205,9 +1240,10 @@ class PDFContentParser {
                     const firstOcgRef = ocgRefArray[0];
                     const ocgId = firstOcgRef.toString();
 
-                    // Use the parent's layer map if we have it
-                    if (this.layerMap[ocgId]) {
-                      formLayerMap[mcName] = this.layerMap[ocgId];
+                    // Use the global layer names map (OCG ref → layer name)
+                    // This is the master mapping passed from pdf-processor.js
+                    if (this.globalLayerNames[ocgId]) {
+                      formLayerMap[mcName] = this.globalLayerNames[ocgId];
                     }
                   }
                 }
@@ -1216,6 +1252,26 @@ class PDFContentParser {
           }
         }
 
+        // Get the Form XObject's Matrix if it exists (transforms content into parent space)
+        // Default is identity matrix if not specified
+        let formMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+        const matrixArray = xobj.dict.get(PDFName.of('Matrix'));
+        if (matrixArray && matrixArray.array) {
+          const m = matrixArray.array.map(n => {
+            if (typeof n === 'number') return n;
+            if (n && typeof n.numberValue === 'number') return n.numberValue;
+            if (n && typeof n.value === 'number') return n.value;
+            return parseFloat(n.toString()) || 0;
+          });
+          if (m.length >= 6) {
+            formMatrix = { a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5] };
+          }
+        }
+
+        // Compute effective CTM = parentCTM × formMatrix
+        // This ensures all paths in the XObject are correctly positioned in parent coordinate space
+        const effectiveCTM = this.multiplyMatrices(this.graphicsState.ctm, formMatrix);
+
         // Create a new parser for the Form XObject content
         const formFontDict = resolvedFormResources?.get(PDFName.of('Font'));
 
@@ -1223,7 +1279,9 @@ class PDFContentParser {
           layerMap: Object.keys(formLayerMap).length > 0 ? formLayerMap : this.layerMap,
           pdfContext: this.pdfContext,
           fontDict: formFontDict || this.fontDict,
-          resourcesDict: resolvedFormResources
+          resourcesDict: resolvedFormResources,
+          globalLayerNames: this.globalLayerNames, // Pass global layer names for nested XObjects
+          initialCTM: effectiveCTM // Pass the effective transform to child parser
         });
 
         // Increment recursion depth
@@ -1233,7 +1291,7 @@ class PDFContentParser {
         const result = formParser.parseContentStream(contentData);
 
         if (this.xobjectRecursionDepth === 0) {
-          console.log(`    Extracted ${result.paths.length} paths and ${result.textObjects.length} text objects from Form XObject`);
+          debug(`    Extracted ${result.paths.length} paths and ${result.textObjects.length} text objects from Form XObject`);
         }
 
         // Merge results into our paths and text objects
@@ -1247,7 +1305,7 @@ class PDFContentParser {
         // Image XObject - raster image, skip for vector extraction
         // Only log at depth 0
         if (this.xobjectRecursionDepth === 0) {
-          console.log(`  Skipping Image XObject: ${cleanName}`);
+          debug(`  Skipping Image XObject: ${cleanName}`);
         }
       }
 

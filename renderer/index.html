@@ -521,9 +521,15 @@
       transition: all 0.2s ease;
     }
 
-    .export-btn:hover {
+    .export-btn:hover:not(:disabled) {
       transform: translateY(-1px);
       box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+
+    .export-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      opacity: 0.6;
     }
 
     .geo-badge {
@@ -664,6 +670,98 @@
       overflow-y: auto;
       min-height: 0;
     }
+
+    .recent-file-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      background: #f8f9ff;
+      border: 1px solid #e0e4ff;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .recent-file-item:hover {
+      background: #f0f2ff;
+      border-color: #667eea;
+      transform: translateX(4px);
+    }
+
+    .recent-file-item.missing {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .recent-file-item.missing:hover {
+      transform: none;
+      border-color: #e0e4ff;
+    }
+
+    .recent-file-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 12px;
+      flex-shrink: 0;
+      color: white;
+      font-size: 0.9em;
+      font-weight: bold;
+    }
+
+    .recent-file-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .recent-file-name {
+      font-weight: 600;
+      color: #333;
+      font-size: 0.9em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .recent-file-meta {
+      font-size: 0.75em;
+      color: #777;
+      margin-top: 2px;
+    }
+
+    .recent-file-geo {
+      display: inline-block;
+      background: #28a745;
+      color: white;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 0.7em;
+      margin-left: 6px;
+    }
+
+    .recent-file-remove {
+      background: none;
+      border: none;
+      color: #999;
+      cursor: pointer;
+      padding: 4px 8px;
+      font-size: 1.1em;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .recent-file-item:hover .recent-file-remove {
+      opacity: 1;
+    }
+
+    .recent-file-remove:hover {
+      color: #dc3545;
+    }
   </style>
 </head>
 <body>
@@ -723,27 +821,9 @@
             <div id="export-panel" class="tab-panel">
               <div class="sidebar-full">
                 <h3 style="font-size: 1em; font-weight: bold; color: #333; margin-bottom: 12px;">Export</h3>
-                <label style="font-size: 0.9em; color: #333; margin-bottom: 8px; display: block; font-weight: 500;">
-                  Paper Size
-                </label>
-                <select id="paperSizeSelect" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 12px; font-size: 0.9em;">
-                  <option value="original">Original Size</option>
-                  <option value="letter">Letter (8.5" × 11")</option>
-                  <option value="legal">Legal (8.5" × 14")</option>
-                  <option value="tabloid">Tabloid (11" × 17")</option>
-                  <option value="a4">A4 (210mm × 297mm)</option>
-                  <option value="a3">A3 (297mm × 420mm)</option>
-                  <option value="a2">A2 (420mm × 594mm)</option>
-                  <option value="a1">A1 (594mm × 841mm)</option>
-                  <option value="a0">A0 (841mm × 1189mm)</option>
-                </select>
-                <label class="checkbox-label" style="margin-bottom: 8px;">
+                <label class="checkbox-label" style="margin-bottom: 12px;">
                   <input type="checkbox" id="whiteBackgroundCheck" checked>
                   <span>White background</span>
-                </label>
-                <label class="checkbox-label" style="margin-bottom: 12px;">
-                  <input type="checkbox" id="cropMaskCheck">
-                  <span>Show crop mask</span>
                 </label>
 
                 <!-- Crop Mode Section -->
@@ -789,7 +869,7 @@
                   </div>
                 </div>
 
-                <button id="exportSvgBtn" class="export-btn">Export SVG</button>
+                <button id="exportSvgBtn" class="export-btn" disabled>Download SVG</button>
                 <div id="exportStatus" class="export-status"></div>
 
                 <!-- Enabled Layers List -->
@@ -802,21 +882,28 @@
               </div>
             </div>
 
-            <!-- Metadata Tab -->
+            <!-- Metadata Tab - left side (compact summary) -->
             <div id="metadata-panel" class="tab-panel">
               <div class="sidebar-full">
-                <h3 style="font-size: 1em; font-weight: bold; color: #333; margin-bottom: 12px;">Metadata</h3>
+                <h3 style="font-size: 1em; font-weight: bold; color: #333; margin-bottom: 12px;">Document Info</h3>
                 <div id="metadata" class="metadata-grid"></div>
               </div>
             </div>
 
           </div>
 
-          <!-- Map Preview -->
-          <div class="map-preview-panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; min-width: 0;">
+          <!-- Map Preview (hidden when Metadata tab is active) -->
+          <div id="mapPreviewPanel" class="map-preview-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; min-width: 0; gap: 8px;">
               <h3 class="map-preview-title" style="margin: 0; border: none; padding: 0; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Map Preview</h3>
-              <div class="zoom-controls" style="flex-shrink: 0; margin-left: 8px;">
+              <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                <label class="checkbox-label" style="margin: 0; font-size: 0.75em; white-space: nowrap;">
+                  <input type="checkbox" id="bgColorCheck" style="width: 12px; height: 12px;">
+                  <span>BG</span>
+                </label>
+                <input type="color" id="bgColorPicker" value="#ffffff" style="width: 30px; height: 24px; border: 1px solid #ddd; border-radius: 3px; cursor: pointer; padding: 0;" disabled>
+              </div>
+              <div class="zoom-controls" style="flex-shrink: 0;">
                 <button id="zoomOutBtn" class="zoom-btn" title="Zoom Out">−</button>
                 <span id="zoomLevel" style="margin: 0 4px; font-size: 0.85em;">100%</span>
                 <button id="zoomInBtn" class="zoom-btn" title="Zoom In">+</button>
@@ -826,15 +913,34 @@
             <div id="mapPreview" class="map-preview">
               <!-- Upload placeholder shown when no PDF is loaded -->
               <div id="uploadPlaceholder" class="upload-placeholder">
-                <div class="upload-placeholder-content">
+                <div class="upload-placeholder-content" style="max-width: 600px;">
                   <h2 style="font-size: 1.3em; margin-bottom: 12px; color: #333;">Upload GeoPDF File</h2>
                   <p style="margin: 8px 0 20px 0; color: #666; font-size: 0.95em; max-width: 400px;">Select a GeoPDF file to extract and visualize raster and vector layers</p>
                   <button id="uploadBtn" class="upload-btn">Choose PDF File</button>
                   <div id="status" class="status"></div>
+
+                  <!-- Recent Files Section -->
+                  <div id="recentFilesSection" style="margin-top: 30px; text-align: left; display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                      <h3 style="font-size: 0.95em; color: #555; margin: 0;">Recent Files</h3>
+                      <button id="clearRecentBtn" style="background: none; border: none; color: #999; font-size: 0.8em; cursor: pointer; padding: 4px 8px;">Clear</button>
+                    </div>
+                    <div id="recentFilesList" style="max-height: 300px; overflow-y: auto;"></div>
+                  </div>
                 </div>
               </div>
             </div>
             <div id="mapStats" class="map-stats"></div>
+          </div>
+
+          <!-- Vector Debug Panel (shown when Metadata tab is active) -->
+          <div id="vectorDebugPanel" class="map-preview-panel" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+              <h3 class="map-preview-title" style="margin: 0; border: none; padding: 0;">Vector Data Debug</h3>
+            </div>
+            <div id="vectorDebugContent" style="flex: 1; overflow-y: auto; background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px;">
+              <div style="color: #999; font-style: italic;">Load a PDF to see vector debug information</div>
+            </div>
           </div>
         </div>
       </div>

@@ -1,10 +1,15 @@
 const { PDFDocument, PDFName } = require('pdf-lib');
-const pdfParse = require('pdf-parse');
 const zlib = require('zlib');
 const RasterExtractor = require('./raster-extractor');
 const VectorExtractor = require('./vector-extractor');
 const PDFContentParser = require('./pdf-content-parser');
 const USGSFormatDetector = require('./usgs-format-detector');
+
+// Note: pdf-parse removed - it caused "No PDFJS.workerSrc" errors in Electron renderer
+// All metadata is now extracted from pdf-lib which works in both main and renderer processes
+
+// Set to true for verbose debug logging (impacts performance on large files)
+const DEBUG_LOGGING = false;
 
 class PDFProcessor {
   constructor(buffer) {
@@ -13,6 +18,12 @@ class PDFProcessor {
     this.metadata = {};
     this.layers = [];
     this.progressCallback = null;
+  }
+
+  debug(...args) {
+    if (DEBUG_LOGGING) {
+      console.log(...args);
+    }
   }
 
   setProgressCallback(callback) {
@@ -31,41 +42,55 @@ class PDFProcessor {
 
   async process() {
     try {
+      // Performance markers for flame chart profiling
+      console.time('PDF:TotalProcess');
+      console.time('PDF:LoadDocument');
+
       this.reportProgress('Loading PDF', 'Reading file structure...');
 
       // Load PDF with pdf-lib for structure access
       this.pdfDoc = await PDFDocument.load(this.buffer);
+      console.timeEnd('PDF:LoadDocument');
 
+      console.time('PDF:ExtractMetadata');
       this.reportProgress('Parsing Metadata', 'Analyzing PDF properties...');
 
-      // Parse PDF with pdf-parse for metadata
-      const pdfData = await pdfParse(this.buffer);
-
-      // Extract metadata
-      await this.extractMetadata(pdfData);
+      // Extract metadata using pdf-lib (removed pdf-parse to fix Electron renderer compatibility)
+      await this.extractMetadata();
+      console.timeEnd('PDF:ExtractMetadata');
 
       const pageCount = this.pdfDoc.getPageCount();
       this.reportProgress('Extracting Layers', `Found ${pageCount} page${pageCount !== 1 ? 's' : ''}. Identifying layers...`);
 
+      console.time('PDF:IdentifyLayers');
       // Identify and extract layers
       await this.identifyLayers();
+      console.timeEnd('PDF:IdentifyLayers');
 
       this.reportProgress('Processing Raster Data', 'Extracting raster layers...');
 
+      console.time('PDF:ExtractRaster');
       // Extract raster data
       const rasterExtractor = new RasterExtractor(this.pdfDoc, this.buffer);
       const rasterLayers = await rasterExtractor.extract();
+      console.timeEnd('PDF:ExtractRaster');
 
       this.reportProgress('Processing Vector Data', 'Extracting vector annotations...');
 
+      console.time('PDF:ExtractVector');
       // Extract vector data using annotation extractor
       const vectorExtractor = new VectorExtractor(this.pdfDoc, this.buffer);
       const vectorLayers = await vectorExtractor.extract();
+      console.timeEnd('PDF:ExtractVector');
 
       this.reportProgress('Extracting Content Paths', 'Parsing content streams (this may take a while)...');
 
-      // Extract vector paths from content streams
-      const contentPaths = await this.extractContentPaths();
+      console.time('PDF:ExtractContentPaths');
+      // Extract vector paths from content streams (sync to avoid Promise overhead)
+      const contentPaths = this.extractContentPaths();
+      console.timeEnd('PDF:ExtractContentPaths');
+
+      console.timeEnd('PDF:TotalProcess');
 
       return {
         metadata: this.metadata,
@@ -74,29 +99,41 @@ class PDFProcessor {
         contentPaths, // New: paths extracted from content streams
         layerNames: this.layerNames || {}, // Optional Content Groups (layers)
         pageCount: this.pdfDoc.getPageCount(),
-        info: pdfData.info
+        info: this.metadata // Use extracted metadata instead of pdfData.info
       };
     } catch (error) {
       console.error('Error processing PDF:', error);
+      console.timeEnd('PDF:TotalProcess');
       throw error;
     }
   }
 
-  async extractMetadata(pdfData) {
+  async extractMetadata() {
     try {
+      // Extract metadata from pdf-lib
+      const pdfLibInfo = {
+        Title: this.pdfDoc.getTitle(),
+        Creator: this.pdfDoc.getCreator(),
+        Producer: this.pdfDoc.getProducer(),
+        CreationDate: this.pdfDoc.getCreationDate(),
+        ModDate: this.pdfDoc.getModificationDate(),
+        Author: this.pdfDoc.getAuthor(),
+        Subject: this.pdfDoc.getSubject()
+      };
+
       // Detect USGS format
-      const formatDetector = new USGSFormatDetector(this.pdfDoc, pdfData.info);
+      const formatDetector = new USGSFormatDetector(this.pdfDoc, pdfLibInfo);
       const formatInfo = await formatDetector.detect();
 
       // Extract basic PDF metadata
       this.metadata = {
-        title: pdfData.info?.Title || 'Unknown',
-        creator: pdfData.info?.Creator || 'Unknown',
-        producer: pdfData.info?.Producer || 'Unknown',
-        creationDate: pdfData.info?.CreationDate || null,
-        modificationDate: pdfData.info?.ModDate || null,
-        pageCount: pdfData.numpages,
-        version: pdfData.info?.PDFFormatVersion || 'Unknown',
+        title: pdfLibInfo.Title || 'Unknown',
+        creator: pdfLibInfo.Creator || 'Unknown',
+        producer: pdfLibInfo.Producer || 'Unknown',
+        creationDate: pdfLibInfo.CreationDate || null,
+        modificationDate: pdfLibInfo.ModDate || null,
+        pageCount: this.pdfDoc.getPageCount(),
+        version: 'Unknown', // pdf-lib doesn't expose PDF version directly
         fileSize: this.buffer.length, // File size in bytes
         // USGS format information
         usgsFormat: formatInfo
@@ -175,9 +212,24 @@ class PDFProcessor {
       // 3. Measure dictionary
 
       const catalog = this.pdfDoc.catalog;
-
-      // Access the catalog's raw dictionary to look for geospatial info
       const catalogDict = catalog.dict;
+      const context = this.pdfDoc.context;
+
+      // Helper to extract number from PDF object
+      const getNumber = (obj) => {
+        if (!obj) return null;
+        if (typeof obj.numberValue === 'function') return obj.numberValue();
+        if (obj.numberValue !== undefined) return obj.numberValue;
+        if (typeof obj.value === 'function') return obj.value();
+        if (obj.value !== undefined) return obj.value;
+        return null;
+      };
+
+      // Helper to extract array of numbers
+      const getNumberArray = (arr) => {
+        if (!arr || !arr.array) return null;
+        return arr.array.map(getNumber).filter(n => n !== null);
+      };
 
       // Look for VP (Viewport) array - contains projection info
       const vpValue = catalogDict.get(PDFName.of('VP'));
@@ -192,7 +244,7 @@ class PDFProcessor {
         this.metadata.isGeoPDF = true;
       }
 
-      // Check for Measure dictionary in pages
+      // Check for Measure dictionary and Viewport in pages
       const pages = this.pdfDoc.getPages();
       if (pages.length > 0) {
         const firstPage = pages[0];
@@ -203,6 +255,117 @@ class PDFProcessor {
         if (measureValue) {
           this.metadata.hasMeasure = true;
           this.metadata.isGeoPDF = true;
+        }
+
+        // Extract Viewport (VP) array from page - contains neatline bounds
+        const pageVP = pageDict.get(PDFName.of('VP'));
+        if (pageVP && pageVP.array) {
+          this.metadata.viewports = [];
+
+          for (let i = 0; i < pageVP.array.length; i++) {
+            const vpRef = pageVP.array[i];
+            const viewport = context.lookup(vpRef);
+
+            if (viewport && viewport.dict) {
+              const vpData = {};
+
+              // Get viewport name
+              const nameObj = viewport.dict.get(PDFName.of('Name'));
+              if (nameObj) {
+                // Decode UTF-16BE string if needed
+                let nameStr = nameObj.toString();
+                if (nameStr.startsWith('(') && nameStr.endsWith(')')) {
+                  nameStr = nameStr.slice(1, -1);
+                  // Remove BOM and decode
+                  nameStr = nameStr.replace(/þÿ\s*/g, '').replace(/\s+/g, ' ').trim();
+                }
+                vpData.name = nameStr;
+              }
+
+              // Get BBox (neatline bounds in PDF coordinates)
+              const bboxObj = viewport.dict.get(PDFName.of('BBox'));
+              if (bboxObj) {
+                const bbox = getNumberArray(bboxObj);
+                if (bbox && bbox.length === 4) {
+                  vpData.bbox = {
+                    left: bbox[0],
+                    bottom: Math.min(bbox[1], bbox[3]),
+                    right: bbox[2],
+                    top: Math.max(bbox[1], bbox[3]),
+                    width: Math.abs(bbox[2] - bbox[0]),
+                    height: Math.abs(bbox[3] - bbox[1])
+                  };
+                }
+              }
+
+              // Get Measure dictionary for geographic coordinates
+              const measureRef = viewport.dict.get(PDFName.of('Measure'));
+              if (measureRef) {
+                const measureDict = context.lookup(measureRef);
+                if (measureDict && measureDict.dict) {
+                  // GPTS = Geographic Points (lat/lon corners)
+                  const gptsObj = measureDict.dict.get(PDFName.of('GPTS'));
+                  if (gptsObj) {
+                    const gpts = getNumberArray(gptsObj);
+                    if (gpts && gpts.length >= 8) {
+                      // GPTS contains pairs of (lat, lon) for each corner
+                      vpData.geoCorners = {
+                        bottomLeft: { lat: gpts[0], lon: gpts[1] },
+                        topLeft: { lat: gpts[2], lon: gpts[3] },
+                        topRight: { lat: gpts[4], lon: gpts[5] },
+                        bottomRight: { lat: gpts[6], lon: gpts[7] }
+                      };
+
+                      // Calculate geographic bounds
+                      const lats = [gpts[0], gpts[2], gpts[4], gpts[6]];
+                      const lons = [gpts[1], gpts[3], gpts[5], gpts[7]];
+                      vpData.geoBounds = {
+                        minLat: Math.min(...lats),
+                        maxLat: Math.max(...lats),
+                        minLon: Math.min(...lons),
+                        maxLon: Math.max(...lons)
+                      };
+                    }
+                  }
+
+                  // Get coordinate system info (GCS)
+                  const gcsRef = measureDict.dict.get(PDFName.of('GCS'));
+                  if (gcsRef) {
+                    const gcsDict = context.lookup(gcsRef);
+                    if (gcsDict && gcsDict.dict) {
+                      const wktObj = gcsDict.dict.get(PDFName.of('WKT'));
+                      if (wktObj) {
+                        let wkt = wktObj.toString();
+                        if (wkt.startsWith('(') && wkt.endsWith(')')) {
+                          wkt = wkt.slice(1, -1);
+                        }
+                        vpData.projection = wkt.substring(0, 200); // Truncate for readability
+                      }
+                    }
+                  }
+                }
+              }
+
+              this.metadata.viewports.push(vpData);
+
+              // Set primary neatline from "Map Layers" viewport (usually first)
+              if (vpData.name && vpData.name.includes('Map') && vpData.bbox && !this.metadata.neatline) {
+                this.metadata.neatline = vpData.bbox;
+                this.metadata.geoBounds = vpData.geoBounds;
+                this.metadata.projection = vpData.projection;
+              }
+            }
+          }
+
+          // Fallback: use first viewport with bbox as neatline
+          if (!this.metadata.neatline && this.metadata.viewports.length > 0) {
+            const firstVP = this.metadata.viewports[0];
+            if (firstVP.bbox) {
+              this.metadata.neatline = firstVP.bbox;
+              this.metadata.geoBounds = firstVP.geoBounds;
+              this.metadata.projection = firstVP.projection;
+            }
+          }
         }
       }
 
@@ -219,7 +382,7 @@ class PDFProcessor {
 
   async extractOptionalContent() {
     try {
-      console.log('\n=== EXTRACTING OPTIONAL CONTENT (LAYERS) ===');
+      this.debug('\n=== EXTRACTING OPTIONAL CONTENT (LAYERS) ===');
 
       const catalog = this.pdfDoc.catalog;
       const catalogDict = catalog.dict;
@@ -228,75 +391,75 @@ class PDFProcessor {
       const ocProperties = catalogDict.get(PDFName.of('OCProperties'));
 
       if (!ocProperties) {
-        console.log('No OCProperties found - PDF has no layer information');
+        this.debug('No OCProperties found - PDF has no layer information');
         this.layerNames = {};
         return;
       }
 
-      console.log('✓ Found OCProperties');
+      this.debug('✓ Found OCProperties');
 
       // Get OCGs (Optional Content Groups) array
       const ocgs = ocProperties.get(PDFName.of('OCGs'));
 
       if (!ocgs || !ocgs.array) {
-        console.log('No OCGs array found');
+        this.debug('No OCGs array found');
         this.layerNames = {};
         return;
       }
 
-      console.log(`✓ Found ${ocgs.array.length} Optional Content Groups`);
+      this.debug(`✓ Found ${ocgs.array.length} Optional Content Groups`);
 
       // OPTION 3: Explore OCProperties structure for Order, Usage, etc.
-      console.log('\n=== EXPLORING OCProperties STRUCTURE (Option 3) ===');
+      this.debug('\n=== EXPLORING OCProperties STRUCTURE (Option 3) ===');
 
       // Check for D (Default viewing) dictionary
       const dDict = ocProperties.get(PDFName.of('D'));
       if (dDict) {
-        console.log('✓ Found D (Default viewing) dictionary');
+        this.debug('✓ Found D (Default viewing) dictionary');
 
         // Check for Order array
         const order = dDict.get(PDFName.of('Order'));
         if (order && order.array) {
-          console.log(`  Order array length: ${order.array.length}`);
-          console.log('  First 5 order entries:', order.array.slice(0, 5).map(o => o?.toString()));
+          this.debug(`  Order array length: ${order.array.length}`);
+          this.debug('  First 5 order entries:', order.array.slice(0, 5).map(o => o?.toString()));
         }
 
         // Check for ON array (initially visible layers)
         const onArray = dDict.get(PDFName.of('ON'));
         if (onArray && onArray.array) {
-          console.log(`  ON array length: ${onArray.array.length}`);
+          this.debug(`  ON array length: ${onArray.array.length}`);
         }
 
         // Check for OFF array
         const offArray = dDict.get(PDFName.of('OFF'));
         if (offArray && offArray.array) {
-          console.log(`  OFF array length: ${offArray.array.length}`);
+          this.debug(`  OFF array length: ${offArray.array.length}`);
         }
 
         // Check for Intent
         const intent = dDict.get(PDFName.of('Intent'));
         if (intent) {
-          console.log(`  Intent: ${intent.toString()}`);
+          this.debug(`  Intent: ${intent.toString()}`);
         }
 
         // Check for BaseState
         const baseState = dDict.get(PDFName.of('BaseState'));
         if (baseState) {
-          console.log(`  BaseState: ${baseState.toString()}`);
+          this.debug(`  BaseState: ${baseState.toString()}`);
         }
       }
 
       // Check for Configs array
       const configs = ocProperties.get(PDFName.of('Configs'));
       if (configs) {
-        console.log('✓ Found Configs array');
+        this.debug('✓ Found Configs array');
       }
 
       // OPTION 4: Check pdf-lib catalog methods
-      console.log('\n=== CHECKING PDF-LIB CATALOG METHODS (Option 4) ===');
-      console.log('Catalog object keys:', Object.keys(catalog));
-      console.log('Catalog dict keys:', catalog.dict ? Object.keys(catalog.dict) : 'N/A');
-      console.log('Available methods on catalog:', Object.getOwnPropertyNames(Object.getPrototypeOf(catalog)));
+      this.debug('\n=== CHECKING PDF-LIB CATALOG METHODS (Option 4) ===');
+      this.debug('Catalog object keys:', Object.keys(catalog));
+      this.debug('Catalog dict keys:', catalog.dict ? Object.keys(catalog.dict) : 'N/A');
+      this.debug('Available methods on catalog:', Object.getOwnPropertyNames(Object.getPrototypeOf(catalog)));
 
       this.layerNames = {};
 
@@ -340,10 +503,10 @@ class PDFProcessor {
         const ocgId = ocgRef.toString();
         this.layerNames[ocgId] = nameStr;
 
-        console.log(`  Layer ${i + 1}: ${nameStr} (${ocgId})`);
+        this.debug(`  Layer ${i + 1}: ${nameStr} (${ocgId})`);
       }
 
-      console.log(`\nTotal layers extracted: ${Object.keys(this.layerNames).length}`);
+      this.debug(`\nTotal layers extracted: ${Object.keys(this.layerNames).length}`);
 
     } catch (error) {
       console.error('Error extracting optional content:', error);
@@ -384,7 +547,12 @@ class PDFProcessor {
     }
   }
 
-  async extractContentPaths() {
+  /**
+   * Extract content paths from PDF - optimized for performance
+   * PERFORMANCE NOTE: This method is synchronous internally to avoid Promise overhead.
+   * The trace analysis showed 14.7s spent in RunMicrotasks due to excessive async/await.
+   */
+  extractContentPaths() {
     const allPaths = [];
     const allTextObjects = [];
     const allFontDetails = {}; // Collect fontDetails from all pages
@@ -392,12 +560,14 @@ class PDFProcessor {
     try {
       const pages = this.pdfDoc.getPages();
 
-      console.log(`\n=== EXTRACTING CONTENT PATHS ===`);
-      console.log(`Total pages: ${pages.length}\n`);
+      this.debug(`\n=== EXTRACTING CONTENT PATHS ===`);
+      this.debug(`Total pages: ${pages.length}\n`);
 
+      // Process all pages synchronously to avoid Promise overhead
       for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-        console.log(`--- Page ${pageIndex + 1}/${pages.length} ---`);
+        this.debug(`--- Page ${pageIndex + 1}/${pages.length} ---`);
 
+        // Report progress (this is still sync - just a callback)
         this.reportProgress(
           'Processing Page Content',
           `Page ${pageIndex + 1} of ${pages.length}`,
@@ -409,10 +579,9 @@ class PDFProcessor {
 
         // Get the page's content stream(s)
         const contents = pageDict.get(PDFName.of('Contents'));
-        console.log(`Contents type: ${contents?.constructor?.name || 'null'}`);
 
         if (!contents) {
-          console.log(`❌ No content stream found\n`);
+          this.debug(`❌ No content stream found\n`);
           continue;
         }
 
@@ -420,245 +589,93 @@ class PDFProcessor {
         let streams = [];
         if (Array.isArray(contents)) {
           streams = contents;
-          console.log(`✓ Array of ${streams.length} streams`);
         } else if (contents.array) {
           streams = contents.array;
-          console.log(`✓ PDFArray with ${streams.length} streams`);
         } else {
           streams = [contents];
-          console.log(`✓ Single stream`);
         }
 
+        // Pre-compute page resources once (avoid repeated lookups)
+        const resources = pageDict.get(PDFName.of('Resources'));
+        const properties = resources?.get(PDFName.of('Properties'));
+        const fontDict = resources?.get(PDFName.of('Font'));
+
+        // Build layer map once per page
+        const mcToLayerMap = this.buildLayerMapSync(properties);
+
+        // Process each stream synchronously
         for (let streamIndex = 0; streamIndex < streams.length; streamIndex++) {
           const streamRef = streams[streamIndex];
-          console.log(`  Stream ${streamIndex + 1}/${streams.length}:`);
 
           try {
             // Look up the actual stream object
             const stream = this.pdfDoc.context.lookup(streamRef);
-            console.log(`    Type: ${stream?.constructor?.name || 'null'}`);
 
             if (!stream) {
-              console.log(`    ⚠️ Stream not found`);
               continue;
             }
 
-            // Get raw stream contents
-            let contentData = null;
-            try {
-              const rawContent = stream.getContents ? stream.getContents() : stream.contents;
-
-              if (!rawContent) {
-                console.log(`    ⚠️ No contents available`);
-                continue;
-              }
-
-              console.log(`    Raw buffer size: ${rawContent.length} bytes`);
-
-              // Check if stream is compressed
-              const filter = stream.dict?.get(PDFName.of('Filter'));
-              console.log(`    Filter: ${filter?.toString() || 'none'}`);
-
-              if (filter && filter.toString() === '/FlateDecode') {
-                try {
-                  contentData = zlib.inflateSync(Buffer.from(rawContent));
-                  console.log(`    ✓ Decompressed: ${rawContent.length} → ${contentData.length} bytes`);
-                } catch (zlibError) {
-                  console.error(`    ❌ Decompression failed:`, zlibError.message);
-                  continue;
-                }
-              } else {
-                contentData = Buffer.from(rawContent);
-                console.log(`    No compression, using raw data`);
-              }
-            } catch (contentError) {
-              console.error(`    ❌ Error getting contents:`, contentError.message);
+            // Get and decompress content synchronously
+            const contentData = this.getStreamContentSync(stream);
+            if (!contentData) {
               continue;
             }
 
-            const preview = contentData.slice(0, 100).toString('utf-8').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
-            console.log(`    Preview: ${preview.substring(0, 80)}...`);
-
-            // Get page resources for marked content mapping
-            const resources = pageDict.get(PDFName.of('Resources'));
-            console.log(`    Resources found: ${!!resources}`);
-            const properties = resources?.get(PDFName.of('Properties'));
-            console.log(`    Properties found: ${!!properties}`);
-
-            // Get font dictionary for font name extraction
-            const fontDict = resources?.get(PDFName.of('Font'));
-            console.log(`    Font dictionary found: ${!!fontDict}`);
-
-            // Build mapping from /MC references to layer names
-            const mcToLayerMap = {};
-            if (properties) {
-              const propDict = this.pdfDoc.context.lookup(properties);
-              console.log(`    PropDict type: ${propDict?.constructor?.name}`);
-
-              if (propDict) {
-                // pdf-lib PDFDict uses Map internally, iterate with entries()
-                const entries = propDict.entries ? Array.from(propDict.entries()) : [];
-                console.log(`    Property entries count: ${entries.length}`);
-
-                // Debug: Show what we have in layerNames
-                const layerNameKeys = Object.keys(this.layerNames).slice(0, 3);
-                console.log(`    Available layer IDs (first 3): ${layerNameKeys.join(', ')}`);
-
-                console.log('\n    === DEEP DIVE INTO PROPERTIES DICTIONARY ===');
-
-                for (const [key, value] of entries) {
-                  const mcName = key.toString(); // e.g., "/MC0"
-                  const ocgRef = value;
-
-                  // Debug: Show first few entries in detail
-                  if (entries.indexOf([key, value]) < 3) {
-                    console.log(`\n      Property entry: ${mcName}`);
-                    console.log(`        Value type: ${ocgRef?.constructor?.name}`);
-                    console.log(`        Value toString: ${ocgRef?.toString()}`);
-
-                    // Try to dereference this object to see what's inside
-                    const derefObj = this.pdfDoc.context.lookup(ocgRef);
-                    if (derefObj) {
-                      console.log(`        Dereferenced type: ${derefObj?.constructor?.name}`);
-
-                      // If it's a dict, show what keys it has
-                      if (derefObj.dict) {
-                        const dictKeys = [];
-                        for (const [k, v] of derefObj.dict.entries()) {
-                          dictKeys.push(k.toString());
-                        }
-                        console.log(`        Dict keys: ${dictKeys.join(', ')}`);
-
-                        // Check for OCG key
-                        const ocgKey = derefObj.dict.get(PDFName.of('OCG'));
-                        if (ocgKey) {
-                          console.log(`        ✓ Has OCG key: ${ocgKey.toString()}`);
-                        }
-
-                        // Check for Type key
-                        const typeKey = derefObj.dict.get(PDFName.of('Type'));
-                        if (typeKey) {
-                          console.log(`        Type: ${typeKey.toString()}`);
-                        }
-                      }
-                    }
-                  }
-
-                  // OPTION 1 IMPLEMENTATION: Dereference the OCMD and get the OCG reference
-                  const ocmdDict = this.pdfDoc.context.lookup(ocgRef);
-                  if (ocmdDict && ocmdDict.dict) {
-                    // Get the /OCGs key - this contains the actual OCG reference(s)
-                    const ocgsValue = ocmdDict.dict.get(PDFName.of('OCGs'));
-
-                    if (ocgsValue) {
-                      // OCGs can be either a single reference or an array of references
-                      let ocgRefArray = [];
-
-                      if (ocgsValue.array) {
-                        // It's an array
-                        ocgRefArray = ocgsValue.array;
-                      } else {
-                        // It's a single reference
-                        ocgRefArray = [ocgsValue];
-                      }
-
-                      // Try to map using the first OCG reference
-                      if (ocgRefArray.length > 0) {
-                        const firstOcgRef = ocgRefArray[0];
-                        const ocgId = firstOcgRef.toString();
-
-                        if (this.layerNames[ocgId]) {
-                          mcToLayerMap[mcName] = this.layerNames[ocgId];
-                          // Only log the first few to avoid spam
-                          if (Object.keys(mcToLayerMap).length <= 5) {
-                            console.log(`      ✓ ${mcName} -> ${this.layerNames[ocgId]}`);
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            } else {
-              console.log(`    ⚠️ No Properties dictionary found in Resources`);
-            }
-
-            console.log(`    Layer map has ${Object.keys(mcToLayerMap).length} entries`);
-            if (Object.keys(mcToLayerMap).length > 0 && Object.keys(mcToLayerMap).length <= 5) {
-              console.log(`    Sample mapping:`, mcToLayerMap);
-            }
-
-            // Parse the content stream
-            console.log(`    📝 Parsing with PDFContentParser...`);
+            // Parse the content stream (this is already sync)
             const parser = new PDFContentParser({
               layerMap: mcToLayerMap,
               pdfContext: this.pdfDoc.context,
               fontDict: fontDict,
-              resourcesDict: resources // Add resources for XObject support
+              resourcesDict: resources,
+              globalLayerNames: this.layerNames
             });
             const {paths, textObjects, fontDetails} = parser.parseContentStream(contentData);
 
-            console.log(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
-            if (paths.length > 0) {
-              const firstPath = paths[0];
-              const subpathCount = firstPath.subpaths?.length || 0;
-              const segmentCount = firstPath.subpaths?.[0]?.segments?.length || 0;
-              console.log(`    First path: ${subpathCount} subpaths, first subpath has ${segmentCount} segments, operation: ${firstPath.operation}`);
-            }
+            this.debug(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
 
-            // Convert paths to renderer format
-            const convertedPaths = paths
-              .map(path => {
-                path.page = pageIndex;
-                return this.convertPathFormat(path);
-              })
-              .filter(path => path !== null); // Remove paths with no subpaths
-
+            // Convert and collect paths - batch the conversion
+            const convertedPaths = this.batchConvertPaths(paths, pageIndex);
             allPaths.push(...convertedPaths);
 
-            // Add page number to text objects and collect them
-            textObjects.forEach(textObj => {
-              textObj.page = pageIndex;
-            });
+            // Batch add page numbers to text objects
+            for (let i = 0; i < textObjects.length; i++) {
+              textObjects[i].page = pageIndex;
+            }
             allTextObjects.push(...textObjects);
 
-            // Merge fontDetails from this stream into allFontDetails
+            // Merge fontDetails
             if (fontDetails) {
               Object.assign(allFontDetails, fontDetails);
             }
           } catch (streamError) {
             console.error(`    ❌ Error:`, streamError.message);
-            console.error(streamError.stack);
           }
         }
-        console.log();
       }
 
-      console.log(`\nTotal paths extracted: ${allPaths.length}`);
+      this.debug(`\nTotal paths extracted: ${allPaths.length}`);
 
-      // Group paths by page for easier access
+      // Group paths by page (single pass)
       const pathsByPage = {};
-      allPaths.forEach(path => {
-        if (!pathsByPage[path.page]) {
-          pathsByPage[path.page] = [];
+      for (let i = 0; i < allPaths.length; i++) {
+        const path = allPaths[i];
+        const page = path.page;
+        if (!pathsByPage[page]) {
+          pathsByPage[page] = [];
         }
-        pathsByPage[path.page].push(path);
-      });
+        pathsByPage[page].push(path);
+      }
 
-      console.log(`\nTotal text objects extracted: ${allTextObjects.length}`);
-
-      // Group text objects by layer
+      // Group text objects by layer (single pass)
       const textObjectsByLayer = {};
-      allTextObjects.forEach(textObj => {
+      for (let i = 0; i < allTextObjects.length; i++) {
+        const textObj = allTextObjects[i];
         const layerName = textObj.layer || 'Text (No Layer)';
         if (!textObjectsByLayer[layerName]) {
           textObjectsByLayer[layerName] = [];
         }
         textObjectsByLayer[layerName].push(textObj);
-      });
-
-      const textLayerNames = Object.keys(textObjectsByLayer);
-      console.log(`Text organized into ${textLayerNames.length} layers:`, textLayerNames);
+      }
 
       this.reportProgress(
         'Finalizing',
@@ -670,8 +687,8 @@ class PDFProcessor {
         pathsByPage,
         statistics: this.generatePathStatistics(allPaths),
         textObjects: allTextObjects,
-        textObjectsByLayer, // Add grouped text objects
-        fontDetails: allFontDetails // Add merged font details
+        textObjectsByLayer,
+        fontDetails: allFontDetails
       };
 
     } catch (error) {
@@ -686,6 +703,97 @@ class PDFProcessor {
         error: error.message
       };
     }
+  }
+
+  /**
+   * Build layer mapping synchronously from Properties dictionary
+   */
+  buildLayerMapSync(properties) {
+    const mcToLayerMap = {};
+
+    if (!properties) {
+      return mcToLayerMap;
+    }
+
+    const propDict = this.pdfDoc.context.lookup(properties);
+    if (!propDict) {
+      return mcToLayerMap;
+    }
+
+    const entries = propDict.entries ? Array.from(propDict.entries()) : [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const [key, value] = entries[i];
+      const mcName = key.toString();
+
+      const ocmdDict = this.pdfDoc.context.lookup(value);
+      if (ocmdDict && ocmdDict.dict) {
+        const ocgsValue = ocmdDict.dict.get(PDFName.of('OCGs'));
+
+        if (ocgsValue) {
+          const ocgRefArray = ocgsValue.array ? ocgsValue.array : [ocgsValue];
+
+          if (ocgRefArray.length > 0) {
+            const firstOcgRef = ocgRefArray[0];
+            const ocgId = firstOcgRef.toString();
+
+            if (this.layerNames[ocgId]) {
+              mcToLayerMap[mcName] = this.layerNames[ocgId];
+            }
+          }
+        }
+      }
+    }
+
+    return mcToLayerMap;
+  }
+
+  /**
+   * Get stream content synchronously with decompression
+   */
+  getStreamContentSync(stream) {
+    try {
+      const rawContent = stream.getContents ? stream.getContents() : stream.contents;
+
+      if (!rawContent) {
+        return null;
+      }
+
+      // Check if stream is compressed
+      const filter = stream.dict?.get(PDFName.of('Filter'));
+
+      if (filter && filter.toString() === '/FlateDecode') {
+        try {
+          return zlib.inflateSync(Buffer.from(rawContent));
+        } catch (zlibError) {
+          console.error(`Decompression failed:`, zlibError.message);
+          return null;
+        }
+      } else {
+        return Buffer.from(rawContent);
+      }
+    } catch (error) {
+      console.error(`Error getting stream contents:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Batch convert paths to renderer format (optimized to avoid per-path function calls)
+   */
+  batchConvertPaths(paths, pageIndex) {
+    const result = [];
+
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i];
+      path.page = pageIndex;
+      const converted = this.convertPathFormat(path);
+      if (converted !== null) {
+        result.push(converted);
+      }
+    }
+
+    return result;
   }
 
   convertPathFormat(path) {
