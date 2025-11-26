@@ -603,6 +603,10 @@ class PDFProcessor {
         // Build layer map once per page
         const mcToLayerMap = this.buildLayerMapSync(properties);
 
+        // Track graphics state across content streams within a page
+        // PDF content streams are logically concatenated, so colors set in stream N carry to stream N+1
+        let carryOverGraphicsState = null;
+
         // Process each stream synchronously
         for (let streamIndex = 0; streamIndex < streams.length; streamIndex++) {
           const streamRef = streams[streamIndex];
@@ -622,14 +626,21 @@ class PDFProcessor {
             }
 
             // Parse the content stream (this is already sync)
+            // Pass the graphics state from the previous stream so colors carry over
             const parser = new PDFContentParser({
               layerMap: mcToLayerMap,
               pdfContext: this.pdfDoc.context,
               fontDict: fontDict,
               resourcesDict: resources,
-              globalLayerNames: this.layerNames
+              globalLayerNames: this.layerNames,
+              initialGraphicsState: carryOverGraphicsState
             });
-            const {paths, textObjects, fontDetails} = parser.parseContentStream(contentData);
+            const {paths, textObjects, fontDetails, endingGraphicsState} = parser.parseContentStream(contentData);
+
+            // Save the ending graphics state for the next stream
+            if (endingGraphicsState) {
+              carryOverGraphicsState = endingGraphicsState;
+            }
 
             this.debug(`    ✓ Found ${paths.length} paths and ${textObjects.length} text objects`);
 

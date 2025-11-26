@@ -60,12 +60,25 @@ class PDFContentParser {
     if (options.initialCTM) {
       this.graphicsState.ctm = { ...options.initialCTM };
     }
+
+    // Initial graphics state - used to carry over state from previous content streams
+    // PDF content streams are concatenated, so colors set in stream N carry to stream N+1
+    if (options.initialGraphicsState) {
+      const initial = options.initialGraphicsState;
+      if (initial.fillColor) this.graphicsState.fillColor = initial.fillColor;
+      if (initial.strokeColor) this.graphicsState.strokeColor = initial.strokeColor;
+      if (initial.lineWidth !== undefined) this.graphicsState.lineWidth = initial.lineWidth;
+      if (initial.lineCap) this.graphicsState.lineCap = initial.lineCap;
+      if (initial.lineJoin) this.graphicsState.lineJoin = initial.lineJoin;
+      if (initial.dashArray) this.graphicsState.dashArray = initial.dashArray;
+      // Note: CTM is handled separately above via initialCTM
+    }
   }
 
   /**
    * Parse a PDF content stream and extract all vector paths and text
    * @param {Buffer|Uint8Array} stream - Raw content stream data
-   * @returns {Object} Object with paths and textObjects arrays
+   * @returns {Object} Object with paths, textObjects arrays, and endingGraphicsState
    */
   parseContentStream(stream) {
     try {
@@ -81,11 +94,21 @@ class PDFContentParser {
       return {
         paths: this.paths,
         textObjects: this.textObjects,
-        fontDetails: this.fontDetails
+        fontDetails: this.fontDetails,
+        // Return the ending graphics state so it can be passed to the next stream
+        // This is necessary because PDF content streams are logically concatenated
+        endingGraphicsState: {
+          fillColor: this.graphicsState.fillColor,
+          strokeColor: this.graphicsState.strokeColor,
+          lineWidth: this.graphicsState.lineWidth,
+          lineCap: this.graphicsState.lineCap,
+          lineJoin: this.graphicsState.lineJoin,
+          dashArray: this.graphicsState.dashArray
+        }
       };
     } catch (error) {
       console.error('Error parsing content stream:', error);
-      return { paths: [], textObjects: [], fontDetails: {} };
+      return { paths: [], textObjects: [], fontDetails: {}, endingGraphicsState: null };
     }
   }
 
