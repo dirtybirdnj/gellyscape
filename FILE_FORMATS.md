@@ -147,7 +147,7 @@ Example layer bounds (VT_Essex_Junction):
 
 ## Format 3: 100K Scale Maps (2025)
 
-**Status: NOT YET FULLY SUPPORTED**
+**Status: SUPPORTED** ✅
 
 ### Identification
 
@@ -160,20 +160,91 @@ Example layer bounds (VT_Essex_Junction):
 | Keywords | `Topobuilder` |
 | Subject | `100K CONUS Map` |
 | Layer Count | 28 |
+| Typical Path Count | ~33,000 |
 
-### Coordinate System
-
-**Problem:** Different coordinate systems per layer!
+### Processed Output
 
 ```
-Layer bounds analysis (100K map):
-  Hydrography:    4131 x 13924, origin=(6478, -6515)
-  Transportation: 25664 x 33654, origin=(-8092, -21881)
-  Terrain:        33870 x 32069, origin=(-9346, -21452)
-  Map Collar:     4254 x 1493, origin=(1428, -279)
+Format Detection: 100k, 2025, Topobuilder
+Page: 3312 x 2160 pts
+Path Bounds: X[0 to 3312] Y[-2161 to 0] (correct page space!)
+Layers: Hydrography, Transportation, Terrain, Land Cover, Map Collar, etc.
 ```
 
-**Key Insight:** Layers do NOT share coordinate systems. Each may have different transforms.
+### Key Structural Differences from 7.5-Minute Format
+
+**Comparison Table (NY 100K vs Jay Peak 7.5-minute):**
+
+| Property | 7.5-minute (24K) | 100K |
+|----------|------------------|------|
+| Page size | 1728 x 2088 pts | 3312 x 2160 pts |
+| Content streams | 8 | 1 |
+| **Paths in main streams** | 6,298 | **0** |
+| Form XObjects | 0 | **1** |
+| Paths in Form XObjects | 0 | **23,581+** |
+| Do operators | 211 | 1 |
+
+**Critical Finding:** All paths in 100K maps are stored inside a single Form XObject (`/Fm0`), NOT inline in the page content streams like 7.5-minute quads.
+
+### Coordinate System Architecture
+
+The 100K format uses a sophisticated transformation chain:
+
+```
+Page Content Stream:
+  q
+  /GS0 gs
+  /Fm0 Do      <-- Invokes the main Form XObject
+  Q
+
+Form XObject /Fm0:
+  BBox: [0, 0, 18400, 12000]     <-- Native coordinate space
+  Matrix: identity               <-- No transformation on XObject itself
+
+  Internal CTM:
+    q
+    0.18 0 0 -0.18 0 2160 cm    <-- Scale 0.18x and flip Y
+    ...paths in 18400x12000 space...
+    Q
+```
+
+**Coordinate Space Analysis:**
+- BBox defines native space: `18400 x 12000` units
+- Scale factor: `0.18` (applied via cm operator)
+- Transformed dimensions:
+  - 18400 × 0.18 = **3312** (matches page width!)
+  - 12000 × 0.18 = **2160** (matches page height!)
+- Y-flip: `d = -0.18` combined with `f = 2160` translates origin to top
+
+### CTM Matrix Fix (RESOLVED)
+
+The "too small" display bug was caused by incorrect CTM matrix multiplication order.
+
+**The Bug:**
+- PDF spec requires `CTM' = matrix × CTM` (pre-multiplication)
+- Code was using `CTM' = CTM × matrix` (post-multiplication)
+- Per-symbol translations (~11203) were not being scaled by the 0.18 factor
+- Result: coordinates in ~33K range instead of ~3K page space
+
+**The Fix (pdf-content-parser.js:649):**
+```javascript
+// Before (wrong):
+this.graphicsState.ctm = this.multiplyMatrices(this.graphicsState.ctm, matrix);
+
+// After (correct per PDF spec):
+this.graphicsState.ctm = this.multiplyMatrices(matrix, this.graphicsState.ctm);
+```
+
+### Architecture Notes
+
+1. **Form XObjects** - 100K files reference nested XObjects:
+   - `/Fm0` (main), `/Fm1`, `/Fm2`, `/Fm3`, `/Fm4` (layer-specific content)
+   - `/Im0`, `/Im1` (raster images)
+   - Each may have its own Matrix and BBox
+
+2. **Heavy CTM Usage** - Over 23,000 `cm` (concat matrix) operators per file
+   - Correct q/Q (save/restore) stack handling implemented
+   - `transformCoordsDuringParsing` flag enables CTM application at parse time
 
 ### Additional Layers (vs 7.5-minute)
 
@@ -193,7 +264,7 @@ Layer bounds analysis (100K map):
 
 ## Format 4: 250K Scale Maps (2025)
 
-**Status: NOT YET FULLY SUPPORTED**
+**Status: SUPPORTED** ✅
 
 ### Identification
 
@@ -207,10 +278,45 @@ Layer bounds analysis (100K map):
 | Subject | `250K Map` |
 | Title | Descriptive (e.g., `250K Topo, VT, 250000, Quad, 20251121, USGS`) |
 | Layer Count | 29 |
+| Typical Path Count | ~90,000 |
+
+### Processed Output
+
+```
+Format Detection: 250k, 2025, Topobuilder
+Page: 2383 x 1872 pts
+Path Bounds: X[0 to 2383] Y[-1872 to 0] (correct page space!)
+```
+
+### Structure Comparison: 100K vs 250K
+
+Both formats use identical architecture - the Topobuilder 2025 format:
+
+| Property | 100K | 250K |
+|----------|------|------|
+| Page Size | 3312 x 2160 pts | 2383 x 1872 pts |
+| Form XObject | `/Fm0` | `/Fm0` |
+| Content Streams | 1 | 1 |
+| Path Count | ~33,000 | ~90,000 |
+| Creator | ArcSOC 13.3.x | ArcSOC 13.3.x |
+| CTM Pattern | Same scaling transform | Same scaling transform |
+
+### Layer Breakdown (VT 250K example)
+
+| Layer | Path Count |
+|-------|------------|
+| Transportation | 58,554 |
+| Hydrography | 20,244 |
+| Terrain | 6,818 |
+| Land Cover | 2,777 |
+| Jurisdictional Boundaries | 852 |
+| Geographic Names | 398 |
+| Boundaries | 278 |
+| Structures | 34 |
 
 ### Additional Layers (vs 100K)
 
-- International boundaries
+- International boundaries (more likely to appear at this scale)
 
 ### Sample Files
 
@@ -350,10 +456,10 @@ function detectUSGSFormat(metadata) {
 - Layer names differ from legacy
 
 ### Priority 3: 100K/250K (2025)
-- **Status:** NOT SUPPORTED
-- Different coordinate systems per layer
-- Requires transform matrix application
-- May need geospatial metadata (LGIDict) for alignment
+- **Status:** SUPPORTED ✅
+- Same Topobuilder architecture as 24K 2025 format
+- CTM matrix pre-multiplication fix enables correct coordinate transforms
+- `transformCoordsDuringParsing` flag applied for 2025 formats
 
 ---
 
