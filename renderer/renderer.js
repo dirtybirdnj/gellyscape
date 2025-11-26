@@ -691,28 +691,42 @@ function extractLayersFromData(data) {
     const layerColorSublayers = new Set(); // Store "Layer::color" format
     const layerColors = {}; // Map of base layer name to Set of colors
 
+    let debugLayerCounts = {};
+    let debugNoColor = 0;
+
     data.contentPaths.paths.forEach(path => {
-      if (path.layer) {
-        // Collect colors for this layer
-        if (!layerColors[path.layer]) {
-          layerColors[path.layer] = new Set();
-        }
+      // Use 'Unassigned' for paths without layer assignment (prevents missing geometry)
+      const layerName = path.layer || 'Unassigned';
+      debugLayerCounts[layerName] = (debugLayerCounts[layerName] || 0) + 1;
 
-        // Determine the color for this path (prefer stroke, fall back to fill)
-        let colorStr = null;
-        if (path.stroke && path.strokeColor) {
-          colorStr = `rgb(${path.strokeColor.join(',')})`;
-        } else if (path.fill && path.fillColor) {
-          colorStr = `rgb(${path.fillColor.join(',')})`;
-        }
+      // Collect colors for this layer
+      if (!layerColors[layerName]) {
+        layerColors[layerName] = new Set();
+      }
 
-        if (colorStr) {
-          layerColors[path.layer].add(colorStr);
-          // Create sublayer: "LayerName::rgb(r,g,b)"
-          layerColorSublayers.add(`${path.layer}::${colorStr}`);
-        }
+      // Determine the color for this path (prefer stroke, fall back to fill)
+      // Note: After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
+      let colorStr = null;
+      if (path.stroke && path.strokeColor) {
+        colorStr = `rgb(${path.strokeColor.join(',')})`;
+      } else if (path.fill && path.fillColor) {
+        colorStr = `rgb(${path.fillColor.join(',')})`;
+      }
+
+      if (colorStr) {
+        layerColors[layerName].add(colorStr);
+        // Create sublayer: "LayerName::rgb(r,g,b)"
+        layerColorSublayers.add(`${layerName}::${colorStr}`);
+      } else {
+        debugNoColor++;
       }
     });
+
+    console.log('DEBUG extractLayersFromData:');
+    console.log('  Layer counts:', debugLayerCounts);
+    console.log('  Paths with no color:', debugNoColor);
+    console.log('  Total sublayers created:', layerColorSublayers.size);
+    console.log('  Sublayers:', Array.from(layerColorSublayers).slice(0, 20));
 
     // Add text layers from textObjectsByLayer
     if (data.contentPaths && data.contentPaths.textObjectsByLayer) {
@@ -1094,9 +1108,9 @@ function updateExportLayersList() {
   if (currentPDFData && currentPDFData.contentPaths) {
     const paths = currentPDFData.contentPaths.paths;
     paths.forEach(path => {
-      const baseName = path.layer || 'Unknown';
+      const baseName = path.layer || 'Unassigned';
 
-      // Determine the color for this path (prefer stroke, fall back to fill)
+      // After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
         pathColor = `rgb(${path.strokeColor.join(',')})`;
@@ -1229,9 +1243,12 @@ function renderCanvasPreview() {
   const paths = currentPDFData.contentPaths.paths;
 
   // Filter paths by enabled color sublayers
+  // Note: Paths without a layer assignment are put in "Unassigned" layer
   const filteredPaths = paths.filter(path => {
-    if (!path.layer) return false;
+    // Use 'Unassigned' for paths without layer (previously filtered out - caused missing geometry)
+    const layerName = path.layer || 'Unassigned';
 
+    // After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
       pathColor = `rgb(${path.strokeColor.join(',')})`;
@@ -1241,7 +1258,7 @@ function renderCanvasPreview() {
 
     if (!pathColor) return false;
 
-    const sublayerName = `${path.layer}::${pathColor}`;
+    const sublayerName = `${layerName}::${pathColor}`;
     return enabledLayers.has(sublayerName);
   });
 
@@ -1283,14 +1300,12 @@ function renderCanvasPreview() {
 
       console.log(`Using PDF page bounds: ${width} x ${height} pts (${(width/72).toFixed(1)}" x ${(height/72).toFixed(1)}")`);
     } else {
-      // Fallback: calculate from paths with assigned layers only (skip "(no layer)" outliers)
+      // Fallback: calculate from all paths (unassigned paths are valid geometry)
       console.log('Falling back to path-based bounds calculation');
       minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
 
       paths.forEach(path => {
-        // Skip paths without layer assignment - these may have outlier coordinates
-        if (!path.layer) return;
-
+        // Include all paths - unassigned paths are valid geometry that should be rendered
         if (path.operations) {
           path.operations.forEach(op => {
             if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
@@ -1569,10 +1584,11 @@ function generateSVG(isExport) {
   const stats = currentPDFData.contentPaths.statistics || {};
 
   // Filter paths by enabled color sublayers
+  // Note: Paths without layer are assigned to 'Unassigned' (prevents missing geometry)
   let filteredPaths = paths.filter(path => {
-    if (!path.layer) return false;
+    const layerName = path.layer || 'Unassigned';
 
-    // Determine the color for this path (prefer stroke, fall back to fill)
+    // After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
       pathColor = `rgb(${path.strokeColor.join(',')})`;
@@ -1583,7 +1599,7 @@ function generateSVG(isExport) {
     if (!pathColor) return false;
 
     // Check if the color sublayer is enabled
-    const sublayerName = `${path.layer}::${pathColor}`;
+    const sublayerName = `${layerName}::${pathColor}`;
     return enabledLayers.has(sublayerName);
   });
 
@@ -1615,7 +1631,8 @@ function generateSVG(isExport) {
 
   // Get all enabled paths for bounds calculation (before any sampling)
   const allFilteredPaths = paths.filter(path => {
-    if (!path.layer) return false;
+    // Use 'Unassigned' for paths without layer (matches extractLayersFromData)
+    const layerName = path.layer || 'Unassigned';
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
       pathColor = `rgb(${path.strokeColor.join(',')})`;
@@ -1623,7 +1640,7 @@ function generateSVG(isExport) {
       pathColor = `rgb(${path.fillColor.join(',')})`;
     }
     if (!pathColor) return false;
-    const sublayerName = `${path.layer}::${pathColor}`;
+    const sublayerName = `${layerName}::${pathColor}`;
     return enabledLayers.has(sublayerName);
   });
 
@@ -1718,6 +1735,9 @@ function generateSVG(isExport) {
   // Group paths by color sublayer
   const pathsByLayer = {};
   filteredPaths.forEach(path => {
+    // Use 'Unassigned' for paths without layer (matches extractLayersFromData)
+    const layerName = path.layer || 'Unassigned';
+
     // Determine the color for this path
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
@@ -1726,7 +1746,7 @@ function generateSVG(isExport) {
       pathColor = `rgb(${path.fillColor.join(',')})`;
     }
 
-    const sublayerName = `${path.layer}::${pathColor}`;
+    const sublayerName = `${layerName}::${pathColor}`;
     if (!pathsByLayer[sublayerName]) {
       pathsByLayer[sublayerName] = [];
     }

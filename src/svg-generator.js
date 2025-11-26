@@ -47,7 +47,8 @@ class SVGGenerator {
 
     // Filter paths by enabled layers
     const filteredPaths = this.paths.filter(path => {
-      if (!path.layer) return false;
+      // Use 'Unassigned' for paths without layer (matches renderer behavior)
+      const layerName = path.layer || 'Unassigned';
 
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
@@ -58,7 +59,7 @@ class SVGGenerator {
 
       if (!pathColor) return false;
 
-      const sublayerName = `${path.layer}::${pathColor}`;
+      const sublayerName = `${layerName}::${pathColor}`;
       return enabledSet.has(sublayerName);
     });
 
@@ -320,7 +321,8 @@ class SVGGenerator {
     const layerMap = new Map();
 
     for (const path of this.paths) {
-      if (!path.layer) continue;
+      // Use 'Unassigned' for paths without layer (matches renderer behavior)
+      const layerName = path.layer || 'Unassigned';
 
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
@@ -331,7 +333,7 @@ class SVGGenerator {
 
       if (!pathColor) continue;
 
-      const sublayerName = `${path.layer}::${pathColor}`;
+      const sublayerName = `${layerName}::${pathColor}`;
       const existing = layerMap.get(sublayerName);
 
       if (existing) {
@@ -339,7 +341,7 @@ class SVGGenerator {
       } else {
         layerMap.set(sublayerName, {
           name: sublayerName,
-          baseLayer: path.layer,
+          baseLayer: layerName,
           color: pathColor,
           pathCount: 1
         });
@@ -362,7 +364,8 @@ class SVGGenerator {
     const layersByBase = {};
 
     for (const path of this.paths) {
-      if (!path.layer) continue;
+      // Use 'Unassigned' for paths without layer (matches renderer behavior)
+      const layerName = path.layer || 'Unassigned';
 
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
@@ -372,7 +375,7 @@ class SVGGenerator {
       }
       if (!pathColor) continue;
 
-      const sublayerName = `${path.layer}::${pathColor}`;
+      const sublayerName = `${layerName}::${pathColor}`;
 
       // Initialize layer bounds if not exists
       if (!layerBounds[sublayerName]) {
@@ -380,14 +383,14 @@ class SVGGenerator {
           minX: Infinity, minY: Infinity,
           maxX: -Infinity, maxY: -Infinity,
           pathCount: 0,
-          baseLayer: path.layer,
+          baseLayer: layerName,
           color: pathColor
         };
       }
 
       // Group by base layer
-      if (!layersByBase[path.layer]) {
-        layersByBase[path.layer] = {
+      if (!layersByBase[layerName]) {
+        layersByBase[layerName] = {
           sublayers: [],
           totalPaths: 0
         };
