@@ -1,5 +1,11 @@
+// Node.js modules (available because nodeIntegration is enabled)
+const fs = require('fs');
+const path = require('path');
+// PDFProcessor no longer needed in renderer - processing happens in main process
+// const PDFProcessor = require('../src/pdf-processor');
+
 // State management
-let currentPDFData = null;
+let currentPDFData = null; // Now holds lightweight data (metadata, layerInfo, no paths)
 let currentFilePath = null;
 let enabledLayers = new Set();
 let allLayers = [];
@@ -10,6 +16,24 @@ let isPanning = false;
 let startPanX = 0;
 let startPanY = 0;
 let cachedBounds = null; // Cache the initial bounds to prevent jumping
+
+// Crop mode state
+let cropModeEnabled = false;
+let cropRectangle = null; // SVG element for crop overlay
+let cropX = 0;
+let cropY = 0;
+let cropWidth = 300; // mm
+let cropHeight = 400; // mm
+let cropScale = 1.0;
+let isDraggingCrop = false;
+let cropDragStartX = 0;
+let cropDragStartY = 0;
+let cropApplied = false; // Track if crop has been applied
+let lastSavedFilePath = null; // Track the last saved file path
+
+// Background color state
+let bgColorEnabled = false;
+let bgColorValue = '#ffffff';
 
 // Layer categorization - defines which layers are plottable vector data vs overlays/annotations
 // Plottable layers: Physical map features suitable for pen plotting
@@ -27,6 +51,23 @@ const OVERLAY_LAYER_PATTERNS = [
   'Department of Defense',
   'Federal Administrated Lands',
   'Images'
+];
+
+// Layers to exclude from bounds calculation
+// These layers often contain coordinates that extend far beyond the actual map area
+// Especially problematic in 2025 Topobuilder format where Map Collar has huge bounds
+const BOUNDS_EXCLUDE_LAYERS = [
+  'Map Collar',
+  'Map Frame',
+  'Projection and Grids',
+  'Barcode',
+  'Map Elements',
+  'Graticule',
+  'Map Surround',
+  'Magnetic Declination',
+  'Geographic Names', // Text labels can extend beyond map area
+  'Emergency Services', // Can have scattered points far from map
+  'Structures' // Building footprints can be outliers
 ];
 
 // Smart layer naming - infer feature types from colors
@@ -107,7 +148,7 @@ function isOverlayLayer(layerName) {
 
 // DOM elements
 const uploadBtn = document.getElementById('uploadBtn');
-const uploadSection = document.querySelector('.upload-section');
+const uploadPlaceholder = document.getElementById('uploadPlaceholder');
 const statusDiv = document.getElementById('status');
 const resultsDiv = document.getElementById('results');
 const metadataDiv = document.getElementById('metadata');
@@ -117,7 +158,6 @@ const mapPreviewDiv = document.getElementById('mapPreview');
 const mapStatsDiv = document.getElementById('mapStats');
 const exportSvgBtn = document.getElementById('exportSvgBtn');
 const whiteBackgroundCheck = document.getElementById('whiteBackgroundCheck');
-const cropMaskCheck = document.getElementById('cropMaskCheck');
 const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const zoomResetBtn = document.getElementById('zoomResetBtn');
@@ -137,10 +177,25 @@ const fileSizeDiv = document.getElementById('fileSize');
 const vectorCountBadge = document.getElementById('vectorCountBadge');
 const overlayCountBadge = document.getElementById('overlayCountBadge');
 
+// Crop mode elements
+const cropModeBtn = document.getElementById('cropModeBtn');
+const cropModeLabel = document.getElementById('cropModeLabel');
+const cropControls = document.getElementById('cropControls');
+const cropWidthInput = document.getElementById('cropWidthInput');
+const cropHeightInput = document.getElementById('cropHeightInput');
+const cropScaleSlider = document.getElementById('cropScaleSlider');
+const cropScaleValue = document.getElementById('cropScaleValue');
+const cropPositionDisplay = document.getElementById('cropPositionDisplay');
+const cropActualSize = document.getElementById('cropActualSize');
+const applyCropBtn = document.getElementById('applyCropBtn');
+
+// Background color elements
+const bgColorCheck = document.getElementById('bgColorCheck');
+const bgColorPicker = document.getElementById('bgColorPicker');
+
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
 exportSvgBtn.addEventListener('click', handleExportSVG);
-cropMaskCheck.addEventListener('change', generateMapPreview);
 zoomInBtn.addEventListener('click', () => adjustZoom(0.1));
 zoomOutBtn.addEventListener('click', () => adjustZoom(-0.1));
 zoomResetBtn.addEventListener('click', resetZoom);
@@ -148,6 +203,24 @@ selectAllLayersBtn.addEventListener('click', selectAllLayers);
 deselectAllLayersBtn.addEventListener('click', deselectAllLayers);
 selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
 deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
+
+// Crop mode event listeners
+cropModeBtn.addEventListener('click', toggleCropMode);
+cropWidthInput.addEventListener('input', updateCropDimensions);
+cropHeightInput.addEventListener('input', updateCropDimensions);
+cropScaleSlider.addEventListener('input', updateCropScale);
+applyCropBtn.addEventListener('click', applyCrop);
+
+// Background color event listeners
+bgColorCheck.addEventListener('change', () => {
+  bgColorEnabled = bgColorCheck.checked;
+  bgColorPicker.disabled = !bgColorEnabled;
+  generateMapPreview();
+});
+bgColorPicker.addEventListener('input', () => {
+  bgColorValue = bgColorPicker.value;
+  generateMapPreview();
+});
 
 // Panning event listeners
 mapPreviewDiv.addEventListener('mousedown', startPan);
@@ -160,6 +233,16 @@ mapPreviewDiv.addEventListener('wheel', handleWheel);
 
 // Tab switching
 function switchTab(tabName) {
+  // If switching away from export tab and crop mode is enabled, disable it
+  if (cropModeEnabled) {
+    cropModeEnabled = false;
+    cropModeLabel.textContent = 'Crop';
+    cropModeBtn.style.background = '';
+    cropControls.style.display = 'none';
+    removeCropRectangle();
+    mapPreviewDiv.addEventListener('mousedown', startPan);
+  }
+
   // Hide all tab panels
   document.querySelectorAll('.tab-panel').forEach(panel => {
     panel.classList.remove('active');
@@ -180,6 +263,25 @@ function switchTab(tabName) {
   const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
   if (btn) {
     btn.classList.add('active');
+  }
+
+  // Toggle between map preview and vector debug panel
+  const mapPreviewPanel = document.getElementById('mapPreviewPanel');
+  const vectorDebugPanel = document.getElementById('vectorDebugPanel');
+  if (tabName === 'metadata') {
+    mapPreviewPanel.style.display = 'none';
+    vectorDebugPanel.style.display = 'flex';
+    // Populate vector debug content
+    populateVectorDebugPanel();
+  } else {
+    mapPreviewPanel.style.display = 'flex';
+    vectorDebugPanel.style.display = 'none';
+  }
+
+  // Force a layout recalculation to prevent layer controls from disappearing
+  // This ensures the flex layout properly calculates after tab switch
+  if (panel) {
+    void panel.offsetHeight; // Trigger reflow
   }
 }
 
@@ -203,6 +305,105 @@ if (window.electronAPI && window.electronAPI.onPDFProgress) {
   });
 }
 
+// Recent files management
+const recentFilesSection = document.getElementById('recentFilesSection');
+const recentFilesList = document.getElementById('recentFilesList');
+const clearRecentBtn = document.getElementById('clearRecentBtn');
+
+async function loadRecentFiles() {
+  if (!window.electronAPI || !window.electronAPI.getRecentFiles) return;
+
+  try {
+    const recentFiles = await window.electronAPI.getRecentFiles();
+
+    if (recentFiles && recentFiles.length > 0) {
+      recentFilesSection.style.display = 'block';
+      renderRecentFiles(recentFiles);
+    } else {
+      recentFilesSection.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error loading recent files:', error);
+  }
+}
+
+async function renderRecentFiles(files) {
+  recentFilesList.innerHTML = '';
+
+  for (const file of files) {
+    const exists = await window.electronAPI.fileExists(file.path);
+    const item = document.createElement('div');
+    item.className = `recent-file-item${exists ? '' : ' missing'}`;
+
+    // Format date
+    const date = new Date(file.lastOpened);
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    // Format path count
+    const pathsStr = file.pathCount ? `${file.pathCount.toLocaleString()} paths` : '';
+
+    // Geographic bounds info
+    let geoStr = '';
+    if (file.geoBounds) {
+      const lat = ((file.geoBounds.minLat + file.geoBounds.maxLat) / 2).toFixed(2);
+      const lon = ((file.geoBounds.minLon + file.geoBounds.maxLon) / 2).toFixed(2);
+      geoStr = `${lat}°, ${lon}°`;
+    }
+
+    item.innerHTML = `
+      <div class="recent-file-icon">PDF</div>
+      <div class="recent-file-info">
+        <div class="recent-file-name">${file.title || file.name}${file.isGeoPDF ? '<span class="recent-file-geo">GeoPDF</span>' : ''}</div>
+        <div class="recent-file-meta">${[pathsStr, geoStr, dateStr].filter(Boolean).join(' • ')}</div>
+      </div>
+      <button class="recent-file-remove" title="Remove from list">×</button>
+    `;
+
+    // Click to open (if file exists)
+    if (exists) {
+      item.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('recent-file-remove')) {
+          openRecentFile(file.path);
+        }
+      });
+    }
+
+    // Remove button
+    const removeBtn = item.querySelector('.recent-file-remove');
+    removeBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.electronAPI.removeRecentFile(file.path);
+      loadRecentFiles(); // Refresh list
+    });
+
+    recentFilesList.appendChild(item);
+  }
+}
+
+async function openRecentFile(filePath) {
+  // Use unified loading function
+  uploadBtn.disabled = true;
+  document.body.style.cursor = 'wait';
+  await loadPDFFile(filePath);
+}
+
+async function trackRecentFile(filePath, result) {
+  // Files are now tracked automatically in main process during processing
+  // This function is kept for backwards compatibility
+  console.log('File tracked in main process:', filePath);
+}
+
+// Clear recent files
+if (clearRecentBtn) {
+  clearRecentBtn.addEventListener('click', async () => {
+    await window.electronAPI.clearRecentFiles();
+    loadRecentFiles();
+  });
+}
+
+// Load recent files on startup
+loadRecentFiles();
+
 async function handleUpload() {
   try {
     // Show loading state
@@ -220,32 +421,7 @@ async function handleUpload() {
       return;
     }
 
-    currentFilePath = filePath;
-    const fileName = filePath.split('/').pop();
-
-    showStatusWithProgress(`Starting processing of ${fileName}...`, 'info');
-
-    // Process PDF - this happens in the main process and keeps UI responsive
-    // Progress updates will be received via the onPDFProgress listener above
-    const result = await window.electronAPI.processPDF(filePath);
-
-    if (!result.success) {
-      showStatus(`Error: ${result.error}`, 'error');
-      uploadBtn.disabled = false;
-      document.body.style.cursor = 'default';
-      return;
-    }
-
-    // Store data
-    currentPDFData = result.data;
-
-    // Display results
-    displayResults(result.data);
-
-    // Hide upload section after successful processing
-    uploadSection.style.display = 'none';
-    hideStatus();
-    document.body.style.cursor = 'default';
+    await loadPDFFile(filePath);
 
   } catch (error) {
     console.error('Error handling upload:', error);
@@ -255,10 +431,53 @@ async function handleUpload() {
   }
 }
 
+// Unified PDF loading function - used by both upload and recent files
+async function loadPDFFile(filePath) {
+  currentFilePath = filePath;
+  const fileName = filePath.split('/').pop();
+
+  showStatusWithProgress(`Processing ${fileName}...`, 'info');
+
+  try {
+    // Process PDF in main process (keeps paths there, returns lightweight data)
+    console.time('PDF:BackendProcess');
+    const result = await window.electronAPI.processPDFLightweight(filePath);
+    console.timeEnd('PDF:BackendProcess');
+
+    if (!result.success) {
+      showStatus(`Error: ${result.error}`, 'error');
+      uploadBtn.disabled = false;
+      document.body.style.cursor = 'default';
+      return;
+    }
+
+    // Store lightweight data (no path arrays - those stay in main process)
+    currentPDFData = result.data;
+
+    // Display results using lightweight data
+    displayResultsLightweight(result.data);
+
+    // Hide upload placeholder after successful processing
+    uploadPlaceholder.classList.add('hidden');
+
+    // Also hide recent files section
+    if (recentFilesSection) {
+      recentFilesSection.style.display = 'none';
+    }
+
+    hideStatus();
+    document.body.style.cursor = 'default';
+
+  } catch (processingError) {
+    console.error('Error processing PDF:', processingError);
+    showStatus(`Error: ${processingError.message}`, 'error');
+    uploadBtn.disabled = false;
+    document.body.style.cursor = 'default';
+  }
+}
+
 function displayResults(data) {
-  // Hide upload section and show results
-  uploadSection.classList.add('hidden');
-  resultsDiv.classList.add('active');
+  // Show toolbar
   toolbarDiv.style.display = 'flex';
 
   // Reset cached bounds for new PDF
@@ -284,6 +503,165 @@ function displayResults(data) {
 
   // Generate and display map preview
   generateMapPreview();
+}
+
+// Lightweight version for backend processing (no path data in renderer)
+function displayResultsLightweight(data) {
+  // Show toolbar
+  toolbarDiv.style.display = 'flex';
+
+  // Reset cached bounds for new PDF
+  cachedBounds = null;
+
+  // Store bounds from backend if available
+  if (data.bounds) {
+    cachedBounds = {
+      minX: data.bounds.left || 0,
+      minY: -(data.bounds.top || 0), // Convert to negative Y
+      maxX: data.bounds.right || data.bounds.width || 1728,
+      maxY: -(data.bounds.bottom || 0),
+      width: data.bounds.width || 1728,
+      height: data.bounds.height || 2088
+    };
+  }
+
+  // Update file info in toolbar
+  updateFileInfo();
+
+  // Display metadata
+  displayMetadata(data.metadata, data.metadata, data);
+
+  // Extract layers from lightweight layerInfo
+  extractLayersFromLightweight(data.layerInfo);
+
+  // Display layer controls
+  displayLayerControls();
+
+  // Update tab counts
+  updateTabCounts();
+
+  // Update map stats
+  updateMapStats(`Loaded ${data.pathCount?.toLocaleString() || 0} paths`);
+
+  // For lightweight mode, we don't generate preview in renderer
+  // The preview would need to be generated by backend
+  // For now, show a placeholder or request preview from backend
+  showLightweightPreview();
+}
+
+// Extract layers from lightweight layerInfo array
+function extractLayersFromLightweight(layerInfo) {
+  allLayers = [];
+  enabledLayers.clear();
+
+  if (!layerInfo || layerInfo.length === 0) {
+    console.log('No layer info available');
+    return;
+  }
+
+  // layerInfo is array of { name, baseLayer, color, pathCount }
+  window.layerColorInfo = {};
+  window.layerBaseNames = {};
+  window.layerPathCounts = {};
+
+  layerInfo.forEach(layer => {
+    allLayers.push(layer.name);
+    window.layerBaseNames[layer.name] = layer.baseLayer;
+    window.layerColorInfo[layer.name] = [layer.color];
+    window.layerPathCounts[layer.name] = layer.pathCount;
+
+    // Enable vector layers by default, but NOT overlay layers
+    if (!isOverlayLayer(layer.name)) {
+      enabledLayers.add(layer.name);
+    }
+  });
+
+  // Sort layers alphabetically
+  allLayers.sort();
+
+  console.log('Extracted layers from backend:', allLayers.length);
+}
+
+// Generate preview from backend
+async function showLightweightPreview() {
+  console.log('showLightweightPreview called');
+  console.log('enabledLayers count:', enabledLayers.size);
+  console.log('First 5 enabledLayers:', Array.from(enabledLayers).slice(0, 5));
+
+  // Show loading indicator
+  mapPreviewDiv.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #666;">
+      <div class="spinner"></div>
+      <div style="margin-top: 16px;">Generating preview...</div>
+    </div>
+  `;
+
+  try {
+    // Request SVG from backend
+    // Don't pass bounds - let SVG generator calculate from actual path data
+    const layersArray = Array.from(enabledLayers);
+    console.log('Sending to backend:', layersArray.length, 'layers');
+    const result = await window.electronAPI.generateSVG({
+      enabledLayers: layersArray,
+      bounds: null, // Let backend calculate bounds from paths
+      options: { whiteBackground: false }
+    });
+    console.log('Backend response:', result.success, 'pathCount:', result.stats?.pathCount);
+
+    if (result.success && result.svg) {
+      // Parse SVG and modify for preview
+      let previewSvg = result.svg;
+
+      // Get the container dimensions
+      const containerWidth = mapPreviewDiv.clientWidth || 800;
+      const containerHeight = mapPreviewDiv.clientHeight || 600;
+
+      // Extract original dimensions from SVG
+      const widthMatch = previewSvg.match(/width="(\d+)pt"/);
+      const heightMatch = previewSvg.match(/height="(\d+)pt"/);
+      const origWidth = widthMatch ? parseInt(widthMatch[1]) : 1728;
+      const origHeight = heightMatch ? parseInt(heightMatch[1]) : 2088;
+
+      // Calculate scale to fit container while maintaining aspect ratio
+      const scaleX = containerWidth / origWidth;
+      const scaleY = containerHeight / origHeight;
+      const scale = Math.min(scaleX, scaleY) * 0.95; // 95% to add some padding
+
+      const displayWidth = Math.round(origWidth * scale);
+      const displayHeight = Math.round(origHeight * scale);
+
+      // Replace dimensions with calculated pixel sizes
+      previewSvg = previewSvg.replace(/width="[^"]*pt"/, `width="${displayWidth}"`);
+      previewSvg = previewSvg.replace(/height="[^"]*pt"/, `height="${displayHeight}"`);
+
+      // Add preserveAspectRatio for proper scaling
+      previewSvg = previewSvg.replace(/<svg ([^>]*)>/, '<svg $1 preserveAspectRatio="xMidYMid meet" style="display: block; margin: auto;">');
+
+      mapPreviewDiv.innerHTML = previewSvg;
+
+      // Apply current zoom/pan
+      updateZoomDisplay();
+
+      updateMapStats(`${result.stats.pathCount.toLocaleString()} paths in ${result.stats.layerCount} layers`);
+    } else {
+      mapPreviewDiv.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #999;">
+          <div style="font-size: 2em; margin-bottom: 12px;">⚠️</div>
+          <div>No paths to display</div>
+          <div style="font-size: 0.85em; margin-top: 8px;">Select some layers to see the preview</div>
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error('Preview generation error:', error);
+    mapPreviewDiv.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #dc3545;">
+        <div style="font-size: 2em; margin-bottom: 12px;">❌</div>
+        <div>Preview generation failed</div>
+        <div style="font-size: 0.85em; margin-top: 8px;">${error.message}</div>
+      </div>
+    `;
+  }
 }
 
 function updateFileInfo() {
@@ -313,28 +691,42 @@ function extractLayersFromData(data) {
     const layerColorSublayers = new Set(); // Store "Layer::color" format
     const layerColors = {}; // Map of base layer name to Set of colors
 
+    let debugLayerCounts = {};
+    let debugNoColor = 0;
+
     data.contentPaths.paths.forEach(path => {
-      if (path.layer) {
-        // Collect colors for this layer
-        if (!layerColors[path.layer]) {
-          layerColors[path.layer] = new Set();
-        }
+      // Use 'Unassigned' for paths without layer assignment (prevents missing geometry)
+      const layerName = path.layer || 'Unassigned';
+      debugLayerCounts[layerName] = (debugLayerCounts[layerName] || 0) + 1;
 
-        // Determine the color for this path (prefer stroke, fall back to fill)
-        let colorStr = null;
-        if (path.stroke && path.strokeColor) {
-          colorStr = `rgb(${path.strokeColor.join(',')})`;
-        } else if (path.fill && path.fillColor) {
-          colorStr = `rgb(${path.fillColor.join(',')})`;
-        }
+      // Collect colors for this layer
+      if (!layerColors[layerName]) {
+        layerColors[layerName] = new Set();
+      }
 
-        if (colorStr) {
-          layerColors[path.layer].add(colorStr);
-          // Create sublayer: "LayerName::rgb(r,g,b)"
-          layerColorSublayers.add(`${path.layer}::${colorStr}`);
-        }
+      // Determine the color for this path (prefer stroke, fall back to fill)
+      // Note: After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
+      let colorStr = null;
+      if (path.stroke && path.strokeColor) {
+        colorStr = `rgb(${path.strokeColor.join(',')})`;
+      } else if (path.fill && path.fillColor) {
+        colorStr = `rgb(${path.fillColor.join(',')})`;
+      }
+
+      if (colorStr) {
+        layerColors[layerName].add(colorStr);
+        // Create sublayer: "LayerName::rgb(r,g,b)"
+        layerColorSublayers.add(`${layerName}::${colorStr}`);
+      } else {
+        debugNoColor++;
       }
     });
+
+    console.log('DEBUG extractLayersFromData:');
+    console.log('  Layer counts:', debugLayerCounts);
+    console.log('  Paths with no color:', debugNoColor);
+    console.log('  Total sublayers created:', layerColorSublayers.size);
+    console.log('  Sublayers:', Array.from(layerColorSublayers).slice(0, 20));
 
     // Add text layers from textObjectsByLayer
     if (data.contentPaths && data.contentPaths.textObjectsByLayer) {
@@ -452,16 +844,24 @@ function displayLayerControls() {
 function createLayerControlItem(layerName) {
   const layerItem = document.createElement('div');
   layerItem.className = 'layer-item';
-  layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+  layerItem.style.cssText = 'display: flex; align-items: center; gap: 8px; position: relative;';
 
   // Parse layerName to extract base name and color
   const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
 
-  // Calculate path count for this specific color sublayer
+  // Calculate path count and feature statistics for this specific color sublayer
   let pathCount = 0;
-  if (currentPDFData && currentPDFData.contentPaths) {
+  let totalOperations = 0;
+  let hasStroke = 0;
+  let hasFill = 0;
+
+  // First try to get from backend-provided path counts (lightweight mode)
+  if (window.layerPathCounts && window.layerPathCounts[layerName]) {
+    pathCount = window.layerPathCounts[layerName];
+  } else if (currentPDFData && currentPDFData.contentPaths) {
+    // Fall back to calculating from paths if available
     const paths = currentPDFData.contentPaths.paths;
-    pathCount = paths.filter(p => {
+    const matchingPaths = paths.filter(p => {
       if (p.layer !== baseName) return false;
       if (!colorStr) return true;  // No color filter, count all
 
@@ -473,7 +873,16 @@ function createLayerControlItem(layerName) {
         pathColor = `rgb(${p.fillColor.join(',')})`;
       }
       return pathColor === colorStr;
-    }).length;
+    });
+
+    pathCount = matchingPaths.length;
+
+    // Calculate additional statistics
+    matchingPaths.forEach(p => {
+      if (p.operations) totalOperations += p.operations.length;
+      if (p.stroke) hasStroke++;
+      if (p.fill) hasFill++;
+    });
   }
 
   // Path count badge on the left (outside the checkbox container)
@@ -511,7 +920,13 @@ function createLayerControlItem(layerName) {
   const label = document.createElement('label');
   label.className = 'checkbox-label';
   label.htmlFor = `layer-${safeId}`;
-  label.style.cssText = 'flex: 1; min-width: 0;';
+  label.style.cssText = 'flex: 1; min-width: 0; cursor: help;';
+
+  // Build detailed tooltip with statistics
+  const avgOps = pathCount > 0 ? (totalOperations / pathCount).toFixed(1) : 0;
+  const featureType = hasStroke > hasFill ? 'lines' : hasFill > hasStroke ? 'fills' : 'mixed';
+  const tooltipText = `${pathCount} paths • ${totalOperations.toLocaleString()} operations • Avg ${avgOps} ops/path • Type: ${featureType}`;
+  label.title = tooltipText;
 
   const span = document.createElement('span');
   // Display descriptive name based on base layer + color
@@ -688,14 +1103,26 @@ function updateExportLayersList() {
     return;
   }
 
-  // Count paths per enabled layer
+  // Count paths per enabled color sublayer
   const layerPathCounts = {};
   if (currentPDFData && currentPDFData.contentPaths) {
     const paths = currentPDFData.contentPaths.paths;
     paths.forEach(path => {
-      const layerName = path.layer || 'Unknown';
-      if (enabledLayers.has(layerName)) {
-        layerPathCounts[layerName] = (layerPathCounts[layerName] || 0) + 1;
+      const baseName = path.layer || 'Unassigned';
+
+      // After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
+      let pathColor = null;
+      if (path.stroke && path.strokeColor) {
+        pathColor = `rgb(${path.strokeColor.join(',')})`;
+      } else if (path.fill && path.fillColor) {
+        pathColor = `rgb(${path.fillColor.join(',')})`;
+      }
+
+      if (pathColor) {
+        const sublayerName = `${baseName}::${pathColor}`;
+        if (enabledLayers.has(sublayerName)) {
+          layerPathCounts[sublayerName] = (layerPathCounts[sublayerName] || 0) + 1;
+        }
       }
     });
   }
@@ -763,14 +1190,31 @@ function updateExportLayersList() {
   exportLayersListDiv.innerHTML = html;
 }
 
+// Use Canvas for preview rendering (much faster than SVG for thousands of paths)
+const USE_CANVAS_PREVIEW = true;
+
 function generateMapPreview() {
+  // Check if we're in lightweight mode (backend processing, no local paths)
+  if (currentPDFData && !currentPDFData.contentPaths && currentPDFData.layerInfo) {
+    // Use backend SVG generation
+    showLightweightPreview();
+    updateExportLayersList();
+    return;
+  }
+
   if (!currentPDFData || !currentPDFData.contentPaths) {
     mapPreviewDiv.innerHTML = '<div style="color: #999;">No map data available</div>';
     return;
   }
 
-  const svg = generateSVG(false); // false = no export, just preview
-  mapPreviewDiv.innerHTML = svg;
+  if (USE_CANVAS_PREVIEW) {
+    // Use fast Canvas-based rendering for preview
+    renderCanvasPreview();
+  } else {
+    // Fall back to SVG rendering
+    const svg = generateSVG(false); // false = no export, just preview
+    mapPreviewDiv.innerHTML = svg;
+  }
 
   // SVG now uses 100% width/height for preview, so no need for zoom calculation
   // Just reset zoom to 1.0 on first load
@@ -782,65 +1226,319 @@ function generateMapPreview() {
   updateZoomDisplay();
 
   // Update stats
-  const paths = currentPDFData.contentPaths.paths;
-  const enabledPaths = paths.filter(p => !p.layer || enabledLayers.has(p.layer));
-
-  mapStatsDiv.innerHTML = `
-    <div>Total paths: ${paths.length}</div>
-    <div>Visible paths: ${enabledPaths.length}</div>
-    <div>Layers: ${enabledLayers.size} of ${allLayers.length} enabled</div>
-  `;
+  updateMapStats();
 
   // Update the export layers list
   updateExportLayersList();
 }
 
-async function handleExportSVG() {
-  try {
-    if (!currentPDFData || !currentPDFData.contentPaths) {
-      showExportStatus('No map data available to export', 'error');
-      return;
+/**
+ * Fast Canvas-based preview renderer using Path2D
+ * Much more efficient than SVG for thousands of paths
+ */
+function renderCanvasPreview() {
+  console.time('Render:Total');
+  console.time('Render:FilterPaths');
+
+  const paths = currentPDFData.contentPaths.paths;
+
+  // Filter paths by enabled color sublayers
+  // Note: Paths without a layer assignment are put in "Unassigned" layer
+  const filteredPaths = paths.filter(path => {
+    // Use 'Unassigned' for paths without layer (previously filtered out - caused missing geometry)
+    const layerName = path.layer || 'Unassigned';
+
+    // After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
+    let pathColor = null;
+    if (path.stroke && path.strokeColor) {
+      pathColor = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      pathColor = `rgb(${path.fillColor.join(',')})`;
     }
 
-    const fileName = currentFilePath ? currentFilePath.split('/').pop().replace('.pdf', '') : 'export';
+    if (!pathColor) return false;
 
-    // Get save path
-    const result = await window.electronAPI.exportVector({
-      defaultPath: `${fileName}_map.svg`
-    });
+    const sublayerName = `${layerName}::${pathColor}`;
+    return enabledLayers.has(sublayerName);
+  });
 
-    if (!result.success) {
-      if (!result.canceled) {
-        showExportStatus(`Export failed: ${result.error}`, 'error');
-      }
-      return;
-    }
+  console.timeEnd('Render:FilterPaths');
 
-    // Show progress
-    showExportStatus('Generating SVG...', 'info');
-
-    // Generate SVG with export settings
-    const svg = generateSVG(true); // true = export mode
-
-    // Save file
-    const saveResult = await window.electronAPI.saveFile({
-      filePath: result.filePath,
-      content: svg
-    });
-
-    if (saveResult.success) {
-      const filename = result.filePath.split('/').pop();
-      showExportStatus(`✓ Saved ${filename}`, 'success');
-      // Auto-hide success message after 5 seconds
-      setTimeout(() => hideExportStatus(), 5000);
-    } else {
-      showExportStatus(`Export failed: ${saveResult.error}`, 'error');
-    }
-
-  } catch (error) {
-    console.error('Error exporting SVG:', error);
-    showExportStatus(`Export error: ${error.message}`, 'error');
+  if (filteredPaths.length === 0) {
+    mapPreviewDiv.innerHTML = '<div style="color: #999; padding: 20px; text-align: center;">No paths to display. Select layers from the Vector tab.</div>';
+    console.timeEnd('Render:Total');
+    return;
   }
+
+  console.time('Render:CalcBounds');
+
+  // Use cached bounds if available
+  let minX, minY, maxX, maxY, width, height;
+
+  if (cachedBounds) {
+    // Reuse cached bounds for consistent sizing regardless of which layers are toggled
+    ({ minX, minY, maxX, maxY, width, height } = cachedBounds);
+    console.log(`Using cached bounds: ${width.toFixed(0)} x ${height.toFixed(0)}`);
+  } else {
+    // For 2023/2024 7.5-minute USGS quads, use PDF page dimensions directly
+    // Our diagnostic analysis confirmed all layers share the same coordinate system
+    // with bounds roughly matching the page dimensions (1728 x 2088 pts)
+    // The coordinate system has X from 0 to width, Y from -height to 0
+
+    const pageInfo = currentPDFData.metadata?.pages?.[0];
+
+    if (pageInfo && pageInfo.width && pageInfo.height) {
+      // Use PDF page bounds as canonical bounds
+      // PDF coordinate system: origin at bottom-left, Y increases upward
+      // But path Y coordinates appear to be negative (top-down), so Y ranges from -height to 0
+      width = pageInfo.width;
+      height = pageInfo.height;
+      minX = 0;
+      maxX = width;
+      minY = -height;
+      maxY = 0;
+
+      console.log(`Using PDF page bounds: ${width} x ${height} pts (${(width/72).toFixed(1)}" x ${(height/72).toFixed(1)}")`);
+    } else {
+      // Fallback: calculate from all paths (unassigned paths are valid geometry)
+      console.log('Falling back to path-based bounds calculation');
+      minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+
+      paths.forEach(path => {
+        // Include all paths - unassigned paths are valid geometry that should be rendered
+        if (path.operations) {
+          path.operations.forEach(op => {
+            if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
+            if (op.y !== undefined) { minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y); }
+            if (op.x1 !== undefined) { minX = Math.min(minX, op.x1); maxX = Math.max(maxX, op.x1); }
+            if (op.y1 !== undefined) { minY = Math.min(minY, op.y1); maxY = Math.max(maxY, op.y1); }
+            if (op.x2 !== undefined) { minX = Math.min(minX, op.x2); maxX = Math.max(maxX, op.x2); }
+            if (op.y2 !== undefined) { minY = Math.min(minY, op.y2); maxY = Math.max(maxY, op.y2); }
+          });
+        }
+      });
+
+      width = maxX - minX;
+      height = maxY - minY;
+      console.log(`Calculated bounds: X[${minX.toFixed(0)} to ${maxX.toFixed(0)}] Y[${minY.toFixed(0)} to ${maxY.toFixed(0)}] = ${width.toFixed(0)} x ${height.toFixed(0)}`);
+    }
+
+    // Cache bounds for consistency across layer toggles
+    cachedBounds = { minX, minY, maxX, maxY, width, height };
+  }
+
+  const padding = 20;
+
+  // Get container dimensions
+  const containerRect = mapPreviewDiv.getBoundingClientRect();
+  const containerWidth = containerRect.width || 800;
+  const containerHeight = containerRect.height || 600;
+
+  // Account for device pixel ratio for sharp rendering on high-DPI displays
+  const dpr = window.devicePixelRatio || 1;
+
+  // Calculate scale to fit content in container
+  const scaleX = containerWidth / (width + padding * 2);
+  const scaleY = containerHeight / (height + padding * 2);
+  const scale = Math.min(scaleX, scaleY);
+
+  console.log(`Container: ${containerWidth}x${containerHeight}, Scale: ${scale.toFixed(6)}, DPR: ${dpr}`);
+
+  // Create canvas element with proper resolution
+  const canvas = document.createElement('canvas');
+  canvas.width = containerWidth * dpr;
+  canvas.height = containerHeight * dpr;
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  // Scale for high-DPI
+  ctx.scale(dpr, dpr);
+
+  // White background
+  ctx.fillStyle = bgColorEnabled ? bgColorValue : '#ffffff';
+  ctx.fillRect(0, 0, containerWidth, containerHeight);
+
+  // Calculate center of content
+  const centerX = minX + width / 2;
+  const centerY = minY + height / 2;
+
+  console.timeEnd('Render:CalcBounds');
+
+  console.log(`Transform: center content at (${centerX.toFixed(0)}, ${centerY.toFixed(0)}), scale=${scale.toFixed(6)}`);
+
+  // Transform: move to container center, scale (flip Y), then offset to content center
+  ctx.translate(containerWidth / 2, containerHeight / 2);
+  ctx.scale(scale, -scale); // Flip Y for PDF coordinate system (Y increases downward in canvas, upward in PDF)
+  ctx.translate(-centerX, -centerY);
+
+  console.time('Render:GroupPaths');
+  // Group paths by color for batch rendering (reduces context state changes)
+  const pathsByColor = {};
+  filteredPaths.forEach(path => {
+    // Skip white fills
+    if (path.fill && path.fillColor) {
+      const [r, g, b] = path.fillColor;
+      if (r === 255 && g === 255 && b === 255) return;
+    }
+
+    let color;
+    if (path.stroke && path.strokeColor) {
+      color = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      color = `rgb(${path.fillColor.join(',')})`;
+    }
+
+    if (!color) return;
+
+    const key = `${color}|${path.stroke ? 's' : 'f'}|${path.lineWidth || 1}`;
+    if (!pathsByColor[key]) {
+      pathsByColor[key] = {
+        color,
+        isStroke: path.stroke,
+        lineWidth: path.lineWidth || 1,
+        paths: []
+      };
+    }
+    pathsByColor[key].paths.push(path);
+  });
+  console.timeEnd('Render:GroupPaths');
+
+  console.time('Render:DrawPaths');
+  // Render paths grouped by color (batch rendering)
+  const startTime = performance.now();
+
+  Object.values(pathsByColor).forEach(group => {
+    ctx.beginPath();
+
+    group.paths.forEach(path => {
+      if (!path.operations) return;
+
+      path.operations.forEach(op => {
+        switch (op.type) {
+          case 'moveto':
+            ctx.moveTo(op.x, op.y);
+            break;
+          case 'lineto':
+            ctx.lineTo(op.x, op.y);
+            break;
+          case 'curveto':
+            ctx.bezierCurveTo(op.x1, op.y1, op.x2, op.y2, op.x3, op.y3);
+            break;
+          case 'closepath':
+            ctx.closePath();
+            break;
+          case 'rect':
+            ctx.rect(op.x, op.y, op.width, op.height);
+            break;
+        }
+      });
+    });
+
+    if (group.isStroke) {
+      ctx.strokeStyle = group.color;
+      ctx.lineWidth = group.lineWidth / scale; // Adjust for scale
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = group.color;
+      ctx.fill();
+    }
+  });
+
+  console.timeEnd('Render:DrawPaths');
+
+  const renderTime = performance.now() - startTime;
+  console.log(`Canvas render: ${filteredPaths.length} paths in ${renderTime.toFixed(1)}ms`);
+
+  // Replace preview content
+  mapPreviewDiv.innerHTML = '';
+  mapPreviewDiv.appendChild(canvas);
+
+  console.timeEnd('Render:Total');
+}
+
+function updateMapStats(statusMessage = null) {
+  if (!currentPDFData || !currentPDFData.contentPaths) return;
+
+  const paths = currentPDFData.contentPaths.paths;
+  const enabledPaths = paths.filter(p => !p.layer || enabledLayers.has(p.layer));
+
+  let statsHTML = '';
+
+  // Show status message if provided (for processing updates)
+  if (statusMessage) {
+    statsHTML += `
+      <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">
+        ${statusMessage}
+      </div>
+    `;
+  }
+
+  // Show last saved file path if available
+  if (lastSavedFilePath) {
+    statsHTML += `
+      <div style="margin-bottom: 8px; padding: 8px; background: #d4edda; border-radius: 4px; border: 1px solid #c3e6cb;">
+        <div style="font-weight: 600; color: #155724; font-size: 0.85em;">Saved:</div>
+        <div style="color: #155724; font-size: 0.75em; word-break: break-all;">${lastSavedFilePath}</div>
+      </div>
+    `;
+  }
+
+  statsHTML += `
+    <div>Total paths: ${paths.length}</div>
+    <div>Visible paths: ${enabledPaths.length}</div>
+    <div>Layers: ${enabledLayers.size} of ${allLayers.length} enabled</div>
+  `;
+
+  // Add crop info if crop mode is enabled
+  if (cropModeEnabled && cropRectangle) {
+    const rectWidth = parseFloat(cropRectangle.getAttribute('width'));
+    const rectHeight = parseFloat(cropRectangle.getAttribute('height'));
+
+    // Convert to mm for display
+    const PT_TO_MM = 0.352778;
+    const widthMM = (rectWidth * PT_TO_MM).toFixed(1);
+    const heightMM = (rectHeight * PT_TO_MM).toFixed(1);
+
+    // Get position
+    const svgElement = mapPreviewDiv.querySelector('svg');
+    if (svgElement) {
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const [vbMinX, vbMinY] = viewBox.split(' ').map(parseFloat);
+        const xMM = ((cropX - vbMinX) * PT_TO_MM).toFixed(1);
+        const yMM = ((cropY - vbMinY) * PT_TO_MM).toFixed(1);
+
+        statsHTML += `
+          <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+            <div style="font-weight: 600; color: #dc3545;">Crop Active</div>
+            <div>Position: ${xMM}mm × ${yMM}mm</div>
+            <div>Size: ${widthMM}mm × ${heightMM}mm</div>
+          </div>
+        `;
+      }
+    }
+  }
+
+  mapStatsDiv.innerHTML = statsHTML;
+}
+
+async function handleExportSVG() {
+  // If crop was applied, open the file in Finder
+  if (cropApplied && lastSavedFilePath) {
+    try {
+      await window.electronAPI.showInFinder(lastSavedFilePath);
+      updateMapStats('Opening file in Finder...');
+    } catch (error) {
+      console.error('Error opening file in Finder:', error);
+      updateMapStats(`Error: Could not open file - ${error.message}`);
+    }
+    return;
+  }
+
+  // If no crop was applied, this shouldn't happen since button is disabled
+  updateMapStats('Error: Please apply crop first');
 }
 
 function getPaperDimensions(paperSize, originalWidth, originalHeight) {
@@ -886,10 +1584,11 @@ function generateSVG(isExport) {
   const stats = currentPDFData.contentPaths.statistics || {};
 
   // Filter paths by enabled color sublayers
-  const filteredPaths = paths.filter(path => {
-    if (!path.layer) return false;
+  // Note: Paths without layer are assigned to 'Unassigned' (prevents missing geometry)
+  let filteredPaths = paths.filter(path => {
+    const layerName = path.layer || 'Unassigned';
 
-    // Determine the color for this path (prefer stroke, fall back to fill)
+    // After conversion by pdf-processor, path has stroke/fill booleans and strokeColor/fillColor RGB arrays
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
       pathColor = `rgb(${path.strokeColor.join(',')})`;
@@ -900,7 +1599,7 @@ function generateSVG(isExport) {
     if (!pathColor) return false;
 
     // Check if the color sublayer is enabled
-    const sublayerName = `${path.layer}::${pathColor}`;
+    const sublayerName = `${layerName}::${pathColor}`;
     return enabledLayers.has(sublayerName);
   });
 
@@ -908,14 +1607,74 @@ function generateSVG(isExport) {
     return '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><text x="200" y="150" text-anchor="middle" fill="#999">No paths to display</text></svg>';
   }
 
+  // Performance optimization: Limit paths in preview mode for large files
+  // Export mode always uses all paths for full fidelity
+  const PREVIEW_PATH_LIMIT = 15000;
+  let previewLimited = false;
+
+  if (!isExport && filteredPaths.length > PREVIEW_PATH_LIMIT) {
+    // Sample paths evenly to maintain visual representation
+    const step = filteredPaths.length / PREVIEW_PATH_LIMIT;
+    const sampledPaths = [];
+    for (let i = 0; i < filteredPaths.length; i += step) {
+      sampledPaths.push(filteredPaths[Math.floor(i)]);
+    }
+    filteredPaths = sampledPaths;
+    previewLimited = true;
+    console.log(`Preview limited to ${filteredPaths.length} paths (${PREVIEW_PATH_LIMIT} max) for performance`);
+  }
+
   // Calculate bounding box - use cached bounds if available for preview mode
+  // IMPORTANT: Always calculate bounds from ALL filtered paths (before sampling)
+  // to ensure viewBox is correct even when preview is limited
   let minX, minY, maxX, maxY, width, height;
 
-  if (!isExport && cachedBounds) {
-    // Use cached bounds for preview to prevent jumping
+  // Get all enabled paths for bounds calculation (before any sampling)
+  const allFilteredPaths = paths.filter(path => {
+    // Use 'Unassigned' for paths without layer (matches extractLayersFromData)
+    const layerName = path.layer || 'Unassigned';
+    let pathColor = null;
+    if (path.stroke && path.strokeColor) {
+      pathColor = `rgb(${path.strokeColor.join(',')})`;
+    } else if (path.fill && path.fillColor) {
+      pathColor = `rgb(${path.fillColor.join(',')})`;
+    }
+    if (!pathColor) return false;
+    const sublayerName = `${layerName}::${pathColor}`;
+    return enabledLayers.has(sublayerName);
+  });
+
+  if (cachedBounds) {
+    // Use cached bounds for consistent sizing (calculated from ALL paths on first load)
     ({ minX, minY, maxX, maxY, width, height } = cachedBounds);
+  } else if (isExport) {
+    // For export, calculate bounds from enabled paths only (user may want to export subset)
+    minX = Infinity;
+    minY = Infinity;
+    maxX = -Infinity;
+    maxY = -Infinity;
+
+    allFilteredPaths.forEach(path => {
+      if (path.operations) {
+        path.operations.forEach(op => {
+          if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
+          if (op.y !== undefined) { minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y); }
+          if (op.x1 !== undefined) { minX = Math.min(minX, op.x1); maxX = Math.max(maxX, op.x1); }
+          if (op.y1 !== undefined) { minY = Math.min(minY, op.y1); maxY = Math.max(maxY, op.y1); }
+          if (op.x2 !== undefined) { minX = Math.min(minX, op.x2); maxX = Math.max(maxX, op.x2); }
+          if (op.y2 !== undefined) { minY = Math.min(minY, op.y2); maxY = Math.max(maxY, op.y2); }
+          if (op.x3 !== undefined) { minX = Math.min(minX, op.x3); maxX = Math.max(maxX, op.x3); }
+          if (op.y3 !== undefined) { minY = Math.min(minY, op.y3); maxY = Math.max(maxY, op.y3); }
+        });
+      }
+    });
+
+    width = maxX - minX;
+    height = maxY - minY;
   } else {
-    // Calculate bounds from all paths (for initial load or export)
+    // First load preview: bounds should already be cached by renderCanvasPreview
+    // Fallback calculation from all paths if somehow not cached
+    console.warn('SVG generateSVG: cachedBounds not set, calculating from all paths');
     minX = Infinity;
     minY = Infinity;
     maxX = -Infinity;
@@ -924,50 +1683,15 @@ function generateSVG(isExport) {
     paths.forEach(path => {
       if (path.operations) {
         path.operations.forEach(op => {
-          if (op.x !== undefined) {
-            minX = Math.min(minX, op.x);
-            maxX = Math.max(maxX, op.x);
-          }
-          if (op.y !== undefined) {
-            minY = Math.min(minY, op.y);
-            maxY = Math.max(maxY, op.y);
-          }
-          // Handle curve control points
-          if (op.x1 !== undefined) {
-            minX = Math.min(minX, op.x1);
-            maxX = Math.max(maxX, op.x1);
-          }
-          if (op.y1 !== undefined) {
-            minY = Math.min(minY, op.y1);
-            maxY = Math.max(maxY, op.y1);
-          }
-          if (op.x2 !== undefined) {
-            minX = Math.min(minX, op.x2);
-            maxX = Math.max(maxX, op.x2);
-          }
-          if (op.y2 !== undefined) {
-            minY = Math.min(minY, op.y2);
-            maxY = Math.max(maxY, op.y2);
-          }
-          if (op.x3 !== undefined) {
-            minX = Math.min(minX, op.x3);
-            maxX = Math.max(maxX, op.x3);
-          }
-          if (op.y3 !== undefined) {
-            minY = Math.min(minY, op.y3);
-            maxY = Math.max(maxY, op.y3);
-          }
+          if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
+          if (op.y !== undefined) { minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y); }
         });
       }
     });
 
     width = maxX - minX;
     height = maxY - minY;
-
-    // Cache the bounds for future preview renders
-    if (!isExport) {
-      cachedBounds = { minX, minY, maxX, maxY, width, height };
-    }
+    cachedBounds = { minX, minY, maxX, maxY, width, height };
   }
 
   const padding = 10;
@@ -976,11 +1700,11 @@ function generateSVG(isExport) {
   const viewBox = `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
 
   // For preview mode, use 100% width/height so it fits the container
-  // For export mode, calculate dimensions based on paper size
+  // For export mode, use original dimensions
   let widthAttr;
   if (isExport) {
-    const paperSize = document.getElementById('paperSizeSelect')?.value || 'original';
-    const dimensions = getPaperDimensions(paperSize, width, height);
+    // Use original dimensions for export
+    const dimensions = getPaperDimensions('original', width, height);
     widthAttr = `width="${dimensions.width}" height="${dimensions.height}"`;
   } else {
     widthAttr = 'width="100%" height="100%"';
@@ -995,42 +1719,25 @@ function generateSVG(isExport) {
     svg += `  <rect x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${height + padding * 2}" fill="white"/>\n`;
   }
 
+  // Add temporary background color layer if enabled (preview only, bottom-most layer)
+  if (!isExport && bgColorEnabled) {
+    svg += `  <rect id="temp-background" x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${height + padding * 2}" fill="${bgColorValue}"/>\n`;
+  }
+
   // Add title
   svg += `  <title>GeoPDF Export - ${enabledLayers.size} layers</title>\n`;
 
-  // Store crop bounds for later use (after path generation)
-  // Crop mask is added when checkbox is checked (both preview and export)
-  // User can then manually process it in vector editors
-  let cropMaskSvg = '';
-  if (cropMaskCheck.checked) {
-    // Calculate crop area - typically the inner map area excluding collar
-    // For now, we'll inset by 5% on each side as a reasonable default
-    const cropInset = Math.min(width, height) * 0.05;
-    const cropX = minX + cropInset;
-    const cropY = minY + cropInset;
-    const cropWidth = width - (cropInset * 2);
-    const cropHeight = height - (cropInset * 2);
-
-    // Create a semi-transparent white frame around the crop area
-    // This is a box with a hole cut out - the underlying layers are NOT cropped
-    // User can manually process this mask layer in vector editors (Inkscape, Illustrator, etc.)
-    cropMaskSvg += `  <g id="crop-mask" data-description="Crop guide - delete or use as clipping mask in vector editor">\n`;
-    // Top bar
-    cropMaskSvg += `    <rect x="${minX - padding}" y="${minY - padding}" width="${width + padding * 2}" height="${cropY - (minY - padding)}" fill="white" opacity="0.7"/>\n`;
-    // Bottom bar
-    cropMaskSvg += `    <rect x="${minX - padding}" y="${cropY + cropHeight}" width="${width + padding * 2}" height="${(maxY + padding) - (cropY + cropHeight)}" fill="white" opacity="0.7"/>\n`;
-    // Left bar
-    cropMaskSvg += `    <rect x="${minX - padding}" y="${cropY}" width="${cropX - (minX - padding)}" height="${cropHeight}" fill="white" opacity="0.7"/>\n`;
-    // Right bar
-    cropMaskSvg += `    <rect x="${cropX + cropWidth}" y="${cropY}" width="${(maxX + padding) - (cropX + cropWidth)}" height="${cropHeight}" fill="white" opacity="0.7"/>\n`;
-    // Add border outline for the crop area
-    cropMaskSvg += `    <rect x="${cropX}" y="${cropY}" width="${cropWidth}" height="${cropHeight}" fill="none" stroke="red" stroke-width="2" stroke-dasharray="10,5"/>\n`;
-    cropMaskSvg += `  </g>\n`;
+  // Add preview mode indicator if limited
+  if (previewLimited) {
+    svg += `  <!-- Preview mode: showing ${filteredPaths.length} of ${allFilteredPaths.length} paths for performance -->\n`;
   }
 
   // Group paths by color sublayer
   const pathsByLayer = {};
   filteredPaths.forEach(path => {
+    // Use 'Unassigned' for paths without layer (matches extractLayersFromData)
+    const layerName = path.layer || 'Unassigned';
+
     // Determine the color for this path
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
@@ -1039,24 +1746,44 @@ function generateSVG(isExport) {
       pathColor = `rgb(${path.fillColor.join(',')})`;
     }
 
-    const sublayerName = `${path.layer}::${pathColor}`;
+    const sublayerName = `${layerName}::${pathColor}`;
     if (!pathsByLayer[sublayerName]) {
       pathsByLayer[sublayerName] = [];
     }
     pathsByLayer[sublayerName].push(path);
   });
 
-  // Generate path elements grouped by color sublayer
-  // Render in REVERSE order of allLayers array - layers at top of UI list render last (appear on top)
-  // This ensures proper z-ordering where later layers in the UI appear above earlier ones
-  const layersToRender = allLayers.slice().reverse().filter(layer => pathsByLayer[layer]);
+  // Generate path elements grouped by color sublayer with proper z-ordering
+  // Strategy: Render vector layers first (bottom), then overlay layers (top)
+  // Within each group, render in reverse order so UI list order matches visual stacking
+
+  const vectorLayersToRender = [];
+  const overlayLayersToRender = [];
+
+  // Separate layers into vector and overlay groups
+  allLayers.slice().reverse().forEach(layer => {
+    if (pathsByLayer[layer]) {
+      if (isOverlayLayer(layer)) {
+        overlayLayersToRender.push(layer);
+      } else {
+        vectorLayersToRender.push(layer);
+      }
+    }
+  });
 
   // Add any layers not in allLayers (shouldn't happen, but failsafe)
   Object.keys(pathsByLayer).forEach(layerName => {
-    if (!layersToRender.includes(layerName)) {
-      layersToRender.push(layerName);
+    if (!vectorLayersToRender.includes(layerName) && !overlayLayersToRender.includes(layerName)) {
+      if (isOverlayLayer(layerName)) {
+        overlayLayersToRender.push(layerName);
+      } else {
+        vectorLayersToRender.push(layerName);
+      }
     }
   });
+
+  // Combine: vector layers first (bottom), then overlay layers (top)
+  const layersToRender = [...vectorLayersToRender, ...overlayLayersToRender];
 
   layersToRender.forEach(layerName => {
     svg += `  <g id="layer-${layerName.replace(/[^a-zA-Z0-9]/g, '-')}" data-layer="${layerName}">\n`;
@@ -1098,20 +1825,15 @@ function generateSVG(isExport) {
     svg += `  </g>\n`;
   });
 
-  // Add crop mask overlay on top of all paths
-  if (cropMaskSvg) {
-    svg += cropMaskSvg;
-  }
-
   svg += '</svg>';
   return svg;
 }
 
-function displayMetadata(metadata, info, data) {
+async function displayMetadata(metadata, info, data) {
   metadataDiv.innerHTML = '';
 
   // Create section headers and organize by category
-  const createSection = (title) => {
+  const createSection = (title, collapsible = false) => {
     const section = document.createElement('div');
     section.style.cssText = 'margin-bottom: 16px;';
 
@@ -1123,11 +1845,19 @@ function displayMetadata(metadata, info, data) {
     return section;
   };
 
-  const createItem = (label, value) => {
+  const createItem = (label, value, mono = false) => {
     const div = document.createElement('div');
     div.className = 'metadata-item';
-    div.innerHTML = `<strong>${label}:</strong> ${value}`;
+    const style = mono ? 'font-family: monospace; font-size: 0.85em;' : '';
+    div.innerHTML = `<strong>${label}:</strong> <span style="${style}">${value}</span>`;
     return div;
+  };
+
+  const createCodeBlock = (content) => {
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'background: #f5f5f5; padding: 8px; border-radius: 4px; font-size: 0.75em; overflow-x: auto; margin: 4px 0;';
+    pre.textContent = content;
+    return pre;
   };
 
   // === DOCUMENT INFORMATION ===
@@ -1147,36 +1877,37 @@ function displayMetadata(metadata, info, data) {
   }
   metadataDiv.appendChild(docSection);
 
-  // === PDF SPECIFICATIONS ===
-  const pdfSection = createSection('PDF Specifications');
-  pdfSection.appendChild(createItem('Pages', metadata.pageCount || 'Unknown'));
-  pdfSection.appendChild(createItem('GeoPDF', metadata.isGeoPDF ? 'Yes ✓' : 'No'));
-  pdfSection.appendChild(createItem('PDF Version', metadata.version || info?.PDFFormatVersion || 'Unknown'));
+  // === MAP CLASSIFICATION (USGS Format) ===
+  if (metadata.usgsFormat) {
+    const mapSection = createSection('Map Classification');
+    const fmt = metadata.usgsFormat;
 
-  if (currentFilePath) {
-    try {
-      const fs = require('fs');
-      const stats = fs.statSync(currentFilePath);
-      pdfSection.appendChild(createItem('File Size', formatBytes(stats.size)));
-    } catch (e) {
-      // Ignore if can't get file size
+    // Scale (e.g., "1:100,000" or "100K")
+    const scaleLabels = {
+      '250k': '1:250,000 (250K)',
+      '100k': '1:100,000 (100K)',
+      '24k': '1:24,000 (7.5-minute quad)',
+      'unknown': 'Unknown'
+    };
+    mapSection.appendChild(createItem('Scale', scaleLabels[fmt.scale] || fmt.scale));
+
+    // Year
+    if (fmt.year) {
+      mapSection.appendChild(createItem('Year', fmt.year.toString()));
     }
-  }
 
-  // Page boxes information
-  if (metadata.pageBoxes) {
-    const boxes = [];
-    if (metadata.pageBoxes.hasMediaBox) boxes.push('MediaBox');
-    if (metadata.pageBoxes.hasCropBox) boxes.push('CropBox');
-    if (metadata.pageBoxes.hasTrimBox) boxes.push('TrimBox');
-    if (metadata.pageBoxes.hasBleedBox) boxes.push('BleedBox');
-    if (metadata.pageBoxes.hasArtBox) boxes.push('ArtBox');
-    if (boxes.length > 0) {
-      pdfSection.appendChild(createItem('Page Boxes', boxes.join(', ')));
+    // Generation/Format type
+    if (fmt.generation && fmt.generation !== 'unknown') {
+      const genLabel = fmt.isTopobuilder ? `${fmt.generation} (Topobuilder)` : fmt.generation;
+      mapSection.appendChild(createItem('Format', genLabel));
     }
-  }
 
-  metadataDiv.appendChild(pdfSection);
+    // Confidence
+    const confidenceLabels = { high: 'High', medium: 'Medium', low: 'Low' };
+    mapSection.appendChild(createItem('Detection', confidenceLabels[fmt.confidence] || fmt.confidence));
+
+    metadataDiv.appendChild(mapSection);
+  }
 
   // === PAGE DIMENSIONS ===
   if (metadata.pageDimensions) {
@@ -1218,6 +1949,62 @@ function displayMetadata(metadata, info, data) {
       `${widthPx150.toLocaleString()} × ${heightPx150.toLocaleString()} px`));
 
     metadataDiv.appendChild(dimSection);
+  }
+
+  // === COORDINATE SYSTEM (from debug info) ===
+  try {
+    const debugResult = await window.electronAPI.getDebugInfo();
+    if (debugResult.success && debugResult.debugInfo) {
+      const debug = debugResult.debugInfo;
+
+      // Coordinate System section
+      const coordSection = createSection('Coordinate System');
+      const ob = debug.overallBounds;
+
+      coordSection.appendChild(createItem('Total Paths', debug.totalPaths.toLocaleString()));
+      coordSection.appendChild(createItem('Layers', `${debug.layerCount} (${debug.baseLayerCount} base)`));
+
+      // ViewBox info as a code block
+      const viewBoxInfo = `ViewBox: X[${ob.minX} → ${ob.maxX}] Y[${ob.minY} → ${ob.maxY}]\nSize: ${ob.width} × ${ob.height}`;
+      coordSection.appendChild(createCodeBlock(viewBoxInfo));
+
+      if (debug.pageDimensions) {
+        const pd = debug.pageDimensions;
+        const boundsW = parseFloat(ob.width);
+        const boundsH = parseFloat(ob.height);
+        const scaleX = (boundsW / pd.widthPt).toFixed(2);
+        const scaleY = (boundsH / pd.heightPt).toFixed(2);
+        coordSection.appendChild(createItem('Bounds/Page Ratio', `X: ${scaleX}x, Y: ${scaleY}x`, true));
+      }
+
+      if (debug.neatline) {
+        const nl = debug.neatline;
+        const neatlineInfo = `L:${nl.left?.toFixed(0)} R:${nl.right?.toFixed(0)} T:${nl.top?.toFixed(0)} B:${nl.bottom?.toFixed(0)}`;
+        coordSection.appendChild(createItem('Neatline', neatlineInfo, true));
+      }
+
+      metadataDiv.appendChild(coordSection);
+
+      // Base Layers (OCG Groups) section
+      if (debug.layersByBase && debug.layersByBase.length > 0) {
+        const baseLayerSection = createSection('Base Layers (OCG)');
+
+        const baseLayersDiv = document.createElement('div');
+        baseLayersDiv.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;';
+
+        debug.layersByBase.forEach(layer => {
+          const layerChip = document.createElement('div');
+          layerChip.style.cssText = 'padding: 4px 8px; background: #f8f9ff; border-left: 3px solid #667eea; font-size: 0.8em;';
+          layerChip.innerHTML = `<strong>${layer.name}</strong><br><span style="color: #666; font-size: 0.9em;">${layer.sublayerCount} colors, ${layer.totalPaths.toLocaleString()} paths</span>`;
+          baseLayersDiv.appendChild(layerChip);
+        });
+
+        baseLayerSection.appendChild(baseLayersDiv);
+        metadataDiv.appendChild(baseLayerSection);
+      }
+    }
+  } catch (err) {
+    console.warn('Could not load debug info for sidebar:', err);
   }
 
   // === LAYER INFORMATION ===
@@ -1362,6 +2149,69 @@ function displayMetadata(metadata, info, data) {
       metadataDiv.appendChild(fontSection);
     }
   }
+
+  // Vector debug info is now shown in the separate vectorDebugPanel
+}
+
+// Populate Vector Debug Panel (right side when Metadata tab active)
+async function populateVectorDebugPanel() {
+  const content = document.getElementById('vectorDebugContent');
+  if (!content) return;
+
+  if (!currentPDFData) {
+    content.innerHTML = '<div style="color: #999; font-style: italic;">Load a PDF to see vector debug information</div>';
+    return;
+  }
+
+  content.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><div>Loading debug info...</div></div>';
+
+  try {
+    const debugResult = await window.electronAPI.getDebugInfo();
+    if (!debugResult.success || !debugResult.debugInfo) {
+      content.innerHTML = '<div style="color: #dc3545;">Failed to load debug info</div>';
+      return;
+    }
+
+    const debug = debugResult.debugInfo;
+    let html = '';
+
+    // === DETAILED LAYER TABLE ===
+    html += '<div>';
+    html += '<h4 style="font-size: 0.95em; color: #667eea; border-bottom: 2px solid #e0e4ff; padding-bottom: 4px; margin-bottom: 8px;">Layer Details (by path count)</h4>';
+
+    html += '<div style="max-height: 400px; overflow-y: auto; font-size: 0.75em; font-family: monospace;">';
+    html += '<div style="display: grid; grid-template-columns: 2fr 60px 100px 100px 120px; gap: 4px; padding: 6px; background: #667eea; color: white; font-weight: bold; position: sticky; top: 0;">';
+    html += '<div>Layer</div><div>Paths</div><div>Top-Left</div><div>Bottom-Right</div><div>Size</div>';
+    html += '</div>';
+
+    debug.layers.forEach((layer, idx) => {
+      const bgColor = idx % 2 === 0 ? '#fff' : '#f9f9f9';
+      const colorMatch = layer.color.match(/rgb\((\d+),(\d+),(\d+)\)/);
+      let colorSwatch = '';
+      if (colorMatch) {
+        colorSwatch = `<span style="display: inline-block; width: 12px; height: 12px; background: ${layer.color}; border: 1px solid #999; margin-right: 4px; vertical-align: middle;"></span>`;
+      }
+
+      // Top-left is (minX, minY), Bottom-right is (maxX, maxY)
+      const topLeft = `${layer.bounds.minX}, ${layer.bounds.minY}`;
+      const bottomRight = `${layer.bounds.maxX}, ${layer.bounds.maxY}`;
+
+      html += `<div style="display: grid; grid-template-columns: 2fr 60px 100px 100px 120px; gap: 4px; padding: 6px; background: ${bgColor}; border-bottom: 1px solid #eee;">
+        <div style="overflow: hidden; text-overflow: ellipsis;" title="${layer.name}">${colorSwatch}${layer.baseLayer}</div>
+        <div>${layer.pathCount.toLocaleString()}</div>
+        <div title="Top-Left (minX, minY)">${topLeft}</div>
+        <div title="Bottom-Right (maxX, maxY)">${bottomRight}</div>
+        <div>${layer.bounds.width} × ${layer.bounds.height}</div>
+      </div>`;
+    });
+
+    html += '</div></div>';
+
+    content.innerHTML = html;
+  } catch (err) {
+    console.error('Error populating vector debug panel:', err);
+    content.innerHTML = `<div style="color: #dc3545;">Error: ${err.message}</div>`;
+  }
 }
 
 // FUNCTION REMOVED - Text Data tab no longer exists
@@ -1456,12 +2306,15 @@ function updateZoomDisplay() {
   // Update zoom level text
   zoomLevelSpan.textContent = `${Math.round(currentZoom * 100)}%`;
 
-  // Apply zoom and pan to SVG
+  // Apply zoom and pan to either SVG or Canvas
   const svg = mapPreviewDiv.querySelector('svg');
-  if (svg) {
+  const canvas = mapPreviewDiv.querySelector('canvas');
+  const element = svg || canvas;
+
+  if (element) {
     // Use center as transform origin for intuitive zooming
-    svg.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-    svg.style.transformOrigin = 'center center';
+    element.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+    element.style.transformOrigin = 'center center';
   }
 }
 
@@ -1515,3 +2368,521 @@ function toggleCollapse(contentId) {
 
 // Make toggleCollapse available globally for inline onclick handlers
 window.toggleCollapse = toggleCollapse;
+
+// ============================================================================
+// CROP MODE FUNCTIONS
+// ============================================================================
+
+function toggleCropMode() {
+  cropModeEnabled = !cropModeEnabled;
+
+  if (cropModeEnabled) {
+    // Enable crop mode
+    cropModeLabel.textContent = 'Disable Crop';
+    cropModeBtn.style.background = '#dc3545';
+    cropControls.style.display = 'block';
+
+    // Create crop rectangle overlay
+    createCropRectangle();
+
+    // Disable panning while in crop mode
+    mapPreviewDiv.removeEventListener('mousedown', startPan);
+
+    // Update map stats to show crop info
+    updateMapStats();
+  } else {
+    // Disable crop mode
+    cropModeLabel.textContent = 'Crop';
+    cropModeBtn.style.background = '';
+    cropControls.style.display = 'none';
+
+    // Remove crop rectangle overlay
+    removeCropRectangle();
+
+    // Re-enable panning
+    mapPreviewDiv.addEventListener('mousedown', startPan);
+
+    // Update map stats to hide crop info
+    updateMapStats();
+  }
+}
+
+function createCropRectangle() {
+  // Find the SVG element in the map preview
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  // Get viewBox to work in SVG coordinate space
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Use the cached bounds to get the actual content dimensions
+  // The crop mask uses the same coordinate system, so we can reference it
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+  const mediaBoxData = pageBoxes?.mediaBox;
+
+  // If we have crop box data, use those dimensions as reference for sizing
+  let referenceWidth, referenceHeight;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+    referenceHeight = cropBoxData.height;
+  } else {
+    // Fallback to viewBox dimensions
+    referenceWidth = vbWidth;
+    referenceHeight = vbHeight;
+  }
+
+  // Calculate crop rectangle size based on the reference dimensions
+  // Assume the reference is approximately 1000mm (standard map size)
+  const mmToSVGRatio = referenceWidth / 1000;
+  const rectWidth = cropWidth * mmToSVGRatio * cropScale;
+  const rectHeight = cropHeight * mmToSVGRatio * cropScale;
+
+  // Center the crop rectangle in the viewBox
+  cropX = vbMinX + (vbWidth - rectWidth) / 2;
+  cropY = vbMinY + (vbHeight - rectHeight) / 2;
+
+  // Create SVG group for crop overlay
+  const cropGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  cropGroup.id = 'crop-overlay';
+  cropGroup.style.pointerEvents = 'all'; // Ensure it receives mouse events
+
+  // Create the crop rectangle
+  cropRectangle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  cropRectangle.setAttribute('id', 'crop-rectangle');
+  cropRectangle.setAttribute('x', cropX);
+  cropRectangle.setAttribute('y', cropY);
+  cropRectangle.setAttribute('width', rectWidth);
+  cropRectangle.setAttribute('height', rectHeight);
+  cropRectangle.setAttribute('fill', 'rgba(255, 0, 0, 0.05)'); // Very light red fill for better visibility
+  cropRectangle.setAttribute('stroke', '#ff0000');
+  cropRectangle.setAttribute('stroke-width', '3');
+  cropRectangle.setAttribute('stroke-dasharray', '10,5');
+  cropRectangle.style.cursor = 'move';
+  cropRectangle.style.pointerEvents = 'all';
+
+  // Add corner handles
+  const handleSize = 12;
+  const corners = [
+    { x: 0, y: 0, cursor: 'nw-resize' },
+    { x: 1, y: 0, cursor: 'ne-resize' },
+    { x: 0, y: 1, cursor: 'sw-resize' },
+    { x: 1, y: 1, cursor: 'se-resize' }
+  ];
+
+  corners.forEach((corner, index) => {
+    const handle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    handle.setAttribute('width', handleSize);
+    handle.setAttribute('height', handleSize);
+    handle.setAttribute('fill', '#ff0000');
+    handle.setAttribute('stroke', '#ffffff');
+    handle.setAttribute('stroke-width', '2');
+    handle.style.cursor = corner.cursor;
+    handle.style.pointerEvents = 'all';
+    handle.dataset.corner = index;
+    cropGroup.appendChild(handle);
+  });
+
+  cropGroup.appendChild(cropRectangle);
+
+  // Append to SVG (will be last element, on top)
+  svgElement.appendChild(cropGroup);
+
+  // Add drag event listeners
+  cropRectangle.addEventListener('mousedown', startCropDrag);
+
+  // Update displays
+  updatePositionDisplay();
+  updateActualSizeDisplay();
+}
+
+function removeCropRectangle() {
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  const cropGroup = svgElement.querySelector('#crop-overlay');
+  if (cropGroup) {
+    cropGroup.remove();
+  }
+  cropRectangle = null;
+}
+
+function startCropDrag(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  isDraggingCrop = true;
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  // Get viewBox for coordinate space
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get SVG bounding box on screen
+  const svgRect = svgElement.getBoundingClientRect();
+
+  // Convert mouse position to SVG viewBox coordinates
+  const mouseX = e.clientX - svgRect.left;
+  const mouseY = e.clientY - svgRect.top;
+
+  // Scale from screen pixels to viewBox coordinates
+  const scaleX = vbWidth / svgRect.width;
+  const scaleY = vbHeight / svgRect.height;
+
+  const mouseSVGX = vbMinX + (mouseX * scaleX);
+  const mouseSVGY = vbMinY + (mouseY * scaleY);
+
+  // Store the offset from the mouse to the rectangle's top-left corner
+  cropDragStartX = mouseSVGX - cropX;
+  cropDragStartY = mouseSVGY - cropY;
+
+  // Add document-level event listeners
+  document.addEventListener('mousemove', handleCropDrag);
+  document.addEventListener('mouseup', endCropDrag);
+}
+
+function handleCropDrag(e) {
+  if (!isDraggingCrop) return;
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement || !cropRectangle) return;
+
+  // Get viewBox for coordinate space
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get SVG bounding box on screen
+  const svgRect = svgElement.getBoundingClientRect();
+
+  // Convert mouse position to SVG viewBox coordinates
+  const mouseX = e.clientX - svgRect.left;
+  const mouseY = e.clientY - svgRect.top;
+
+  // Scale from screen pixels to viewBox coordinates
+  const scaleX = vbWidth / svgRect.width;
+  const scaleY = vbHeight / svgRect.height;
+
+  const mouseSVGX = vbMinX + (mouseX * scaleX);
+  const mouseSVGY = vbMinY + (mouseY * scaleY);
+
+  // Calculate new position
+  cropX = mouseSVGX - cropDragStartX;
+  cropY = mouseSVGY - cropDragStartY;
+
+  // Constrain to viewBox bounds
+  const rectWidth = parseFloat(cropRectangle.getAttribute('width'));
+  const rectHeight = parseFloat(cropRectangle.getAttribute('height'));
+  cropX = Math.max(vbMinX, Math.min(cropX, vbMinX + vbWidth - rectWidth));
+  cropY = Math.max(vbMinY, Math.min(cropY, vbMinY + vbHeight - rectHeight));
+
+  // Update rectangle position
+  cropRectangle.setAttribute('x', cropX);
+  cropRectangle.setAttribute('y', cropY);
+
+  // Update corner handles
+  updateCornerHandles();
+
+  // Update position display
+  updatePositionDisplay();
+
+  // Update map stats with new crop info
+  updateMapStats();
+}
+
+function endCropDrag() {
+  isDraggingCrop = false;
+  document.removeEventListener('mousemove', handleCropDrag);
+  document.removeEventListener('mouseup', endCropDrag);
+}
+
+function updateCornerHandles() {
+  const cropGroup = mapPreviewDiv.querySelector('#crop-overlay');
+  if (!cropGroup || !cropRectangle) return;
+
+  const handles = cropGroup.querySelectorAll('rect:not(#crop-rectangle)');
+  const rectWidth = parseFloat(cropRectangle.getAttribute('width'));
+  const rectHeight = parseFloat(cropRectangle.getAttribute('height'));
+  const handleSize = 12;
+
+  const positions = [
+    { x: cropX - handleSize/2, y: cropY - handleSize/2 },
+    { x: cropX + rectWidth - handleSize/2, y: cropY - handleSize/2 },
+    { x: cropX - handleSize/2, y: cropY + rectHeight - handleSize/2 },
+    { x: cropX + rectWidth - handleSize/2, y: cropY + rectHeight - handleSize/2 }
+  ];
+
+  handles.forEach((handle, index) => {
+    if (positions[index]) {
+      handle.setAttribute('x', positions[index].x);
+      handle.setAttribute('y', positions[index].y);
+    }
+  });
+}
+
+function updatePositionDisplay() {
+  if (!cropRectangle) {
+    cropPositionDisplay.textContent = 'Drag rectangle to position';
+    return;
+  }
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get reference dimensions for mm conversion
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+
+  let referenceWidth;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+  } else {
+    referenceWidth = vbWidth;
+  }
+
+  // Calculate mm to SVG ratio
+  const mmToSVGRatio = referenceWidth / 1000;
+
+  // Convert crop position from viewBox coordinates to mm
+  const xMM = Math.round((cropX - vbMinX) / mmToSVGRatio);
+  const yMM = Math.round((cropY - vbMinY) / mmToSVGRatio);
+
+  cropPositionDisplay.textContent = `X: ${xMM}mm, Y: ${yMM}mm`;
+}
+
+function updateActualSizeDisplay() {
+  const actualWidth = Math.round(cropWidth * cropScale);
+  const actualHeight = Math.round(cropHeight * cropScale);
+  cropActualSize.textContent = `${actualWidth} × ${actualHeight} mm`;
+}
+
+function updateCropDimensions() {
+  cropWidth = parseFloat(cropWidthInput.value) || 300;
+  cropHeight = parseFloat(cropHeightInput.value) || 400;
+
+  if (!cropRectangle) return;
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) return;
+
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // Get reference dimensions
+  const pageBoxes = currentPDFData?.metadata?.pageBoxes;
+  const cropBoxData = pageBoxes?.cropBox || pageBoxes?.trimBox;
+
+  let referenceWidth;
+  if (cropBoxData) {
+    referenceWidth = cropBoxData.width;
+  } else {
+    referenceWidth = vbWidth;
+  }
+
+  // Calculate new size in SVG coordinate space
+  const mmToSVGRatio = referenceWidth / 1000;
+  const rectWidth = cropWidth * mmToSVGRatio * cropScale;
+  const rectHeight = cropHeight * mmToSVGRatio * cropScale;
+
+  // Update rectangle size
+  cropRectangle.setAttribute('width', rectWidth);
+  cropRectangle.setAttribute('height', rectHeight);
+
+  // Update corner handles
+  updateCornerHandles();
+
+  // Update displays
+  updatePositionDisplay();
+  updateActualSizeDisplay();
+
+  // Update map stats with new crop info
+  updateMapStats();
+}
+
+function updateCropScale() {
+  const scalePercent = parseFloat(cropScaleSlider.value);
+  cropScale = scalePercent / 100;
+  cropScaleValue.textContent = scalePercent;
+
+  // Update crop dimensions with new scale
+  updateCropDimensions();
+}
+
+async function applyCrop() {
+  if (!cropRectangle) {
+    updateMapStats('Error: Please enable crop mode first');
+    return;
+  }
+
+  const svgElement = mapPreviewDiv.querySelector('svg');
+  if (!svgElement) {
+    updateMapStats('Error: No map preview available');
+    return;
+  }
+
+  const viewBox = svgElement.getAttribute('viewBox');
+  if (!viewBox) return;
+
+  const [vbMinX, vbMinY, vbWidth, vbHeight] = viewBox.split(' ').map(parseFloat);
+
+  // The SVG uses PDF points as the coordinate system
+  // We need to pass the crop rectangle coordinates directly in points
+  // The crop rectangle (cropX, cropY, width, height) is already in SVG coordinate space (points)
+
+  const rectWidth = parseFloat(cropRectangle.getAttribute('width'));
+  const rectHeight = parseFloat(cropRectangle.getAttribute('height'));
+
+  // Convert points to mm for vpype (1 point = 1/72 inch = 0.352778 mm)
+  const PT_TO_MM = 0.352778;
+  const xMM = (cropX - vbMinX) * PT_TO_MM;
+  const yMM = (cropY - vbMinY) * PT_TO_MM;
+  const widthMM = rectWidth * PT_TO_MM;
+  const heightMM = rectHeight * PT_TO_MM;
+
+  console.log('Crop parameters (SVG points):', {
+    cropX,
+    cropY,
+    rectWidth,
+    rectHeight,
+    viewBox: { vbMinX, vbMinY, vbWidth, vbHeight }
+  });
+
+  console.log('Crop parameters (mm for vpype):', {
+    x: xMM.toFixed(2),
+    y: yMM.toFixed(2),
+    width: widthMM.toFixed(2),
+    height: heightMM.toFixed(2)
+  });
+
+  // Check if vpype is installed
+  updateMapStats('Checking for vpype...');
+
+  const vpypeCheck = await window.electronAPI.checkVpype();
+  if (!vpypeCheck.installed) {
+    updateMapStats('Error: vpype is not installed. Please install vpype to use crop functionality.');
+    console.error('vpype not found:', vpypeCheck.error);
+    return;
+  }
+
+  console.log('vpype version:', vpypeCheck.version);
+
+  // Generate SVG with current layers (use backend if available)
+  updateMapStats('Generating SVG...');
+
+  console.log('Enabled layers before SVG generation:', Array.from(enabledLayers));
+
+  let svgContent;
+
+  // Try backend SVG generation first (lightweight mode)
+  if (window.electronAPI && window.electronAPI.generateSVG) {
+    try {
+      const svgResult = await window.electronAPI.generateSVG({
+        enabledLayers: Array.from(enabledLayers),
+        bounds: cachedBounds,
+        options: { whiteBackground: whiteBackgroundCheck?.checked || false }
+      });
+
+      if (svgResult.success) {
+        svgContent = svgResult.svg;
+        console.log('Generated SVG via backend:', svgResult.stats);
+      } else {
+        console.error('Backend SVG generation failed:', svgResult.error);
+        // Fall back to local generation if we have path data
+        if (currentPDFData?.contentPaths?.paths) {
+          svgContent = generateSVG(true);
+        }
+      }
+    } catch (err) {
+      console.error('Backend SVG error:', err);
+      // Fall back to local generation
+      if (currentPDFData?.contentPaths?.paths) {
+        svgContent = generateSVG(true);
+      }
+    }
+  } else if (currentPDFData?.contentPaths?.paths) {
+    // Legacy: local SVG generation
+    svgContent = generateSVG(true);
+  }
+
+  if (!svgContent) {
+    updateMapStats('Error: Failed to generate SVG');
+    return;
+  }
+
+  console.log('Generated SVG length:', svgContent.length);
+
+  // Run vpype crop
+  updateMapStats('Running vpype crop...');
+
+  try {
+    const result = await window.electronAPI.cropWithVpype({
+      svgContent,
+      cropX: xMM,
+      cropY: yMM,
+      cropWidth: widthMM,
+      cropHeight: heightMM,
+      paperSize: 'original'
+    });
+
+    if (!result.success) {
+      updateMapStats(`Error: vpype failed - ${result.error}`);
+      console.error('vpype stderr:', result.stderr);
+      return;
+    }
+
+    console.log('vpype processed layers:', result.layersProcessed);
+
+    // Generate filename from current PDF name and timestamp
+    const fileName = currentFilePath ? currentFilePath.split('/').pop().replace('.pdf', '') : 'map';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const croppedFileName = `cropped-${fileName}-${timestamp}.svg`;
+
+    updateMapStats('Saving file...');
+
+    // Request gellyscape directory path from main process
+    const gellyScapePath = await window.electronAPI.getGellyScapePath();
+    const fullPath = `${gellyScapePath}/${croppedFileName}`;
+
+    // Save the file directly
+    const writeResult = await window.electronAPI.saveFile({
+      filePath: fullPath,
+      content: result.svg
+    });
+
+    if (writeResult.success) {
+      const layerInfo = result.layersProcessed ? ` (${result.layersProcessed} layers)` : '';
+
+      // Store the file path
+      lastSavedFilePath = fullPath;
+      cropApplied = true;
+
+      // Enable the download button
+      exportSvgBtn.disabled = false;
+
+      // Update the status bar with success message
+      updateMapStats(`Crop complete! Saved ${layerInfo}`);
+
+      console.log('Crop saved to:', fullPath);
+    } else {
+      updateMapStats(`Error: Failed to save - ${writeResult.error}`);
+    }
+  } catch (error) {
+    updateMapStats(`Error: ${error.message}`);
+    console.error('Crop error:', error);
+  }
+}

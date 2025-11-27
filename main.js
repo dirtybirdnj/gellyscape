@@ -1,19 +1,105 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const os = require('os');
 const PDFProcessor = require('./src/pdf-processor');
+const SVGGenerator = require('./src/svg-generator');
+
+const execAsync = promisify(exec);
 
 let mainWindow;
+let gellyScapeDir;
+let recentFilesPath;
+const MAX_RECENT_FILES = 20;
+
+// Store processed PDF data in main process (avoid sending huge path arrays to renderer)
+let currentPDFPaths = null;
+let currentPDFMetadata = null;
+let currentSVGGenerator = null;
+
+// Create gellyscape directory in user's home folder
+async function ensureGellyScapeDir() {
+  const homeDir = os.homedir();
+  gellyScapeDir = path.join(homeDir, 'gellyscape');
+  recentFilesPath = path.join(gellyScapeDir, 'recent-files.json');
+
+  try {
+    await fs.mkdir(gellyScapeDir, { recursive: true });
+    console.log('GellyScape directory ready:', gellyScapeDir);
+  } catch (error) {
+    console.error('Error creating GellyScape directory:', error);
+  }
+
+  return gellyScapeDir;
+}
+
+// Recent files management
+async function loadRecentFiles() {
+  try {
+    const data = await fs.readFile(recentFilesPath, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    // File doesn't exist or is invalid - return empty array
+    return [];
+  }
+}
+
+async function saveRecentFiles(files) {
+  try {
+    await fs.writeFile(recentFilesPath, JSON.stringify(files, null, 2));
+  } catch (error) {
+    console.error('Error saving recent files:', error);
+  }
+}
+
+async function addRecentFile(filePath, metadata = {}) {
+  const recentFiles = await loadRecentFiles();
+
+  // Create entry with metadata
+  const entry = {
+    path: filePath,
+    name: path.basename(filePath),
+    lastOpened: new Date().toISOString(),
+    // Extract useful info from metadata
+    title: metadata.Title || path.basename(filePath, '.pdf'),
+    isGeoPDF: metadata.isGeoPDF || false,
+    pageDimensions: metadata.pageDimensions || null,
+    neatline: metadata.neatline || null,
+    geoBounds: metadata.geoBounds || null,
+    pathCount: metadata.pathCount || 0
+  };
+
+  // Remove if already exists (will re-add at top)
+  const filteredFiles = recentFiles.filter(f => f.path !== filePath);
+
+  // Add to beginning
+  filteredFiles.unshift(entry);
+
+  // Limit to max recent files
+  const limitedFiles = filteredFiles.slice(0, MAX_RECENT_FILES);
+
+  await saveRecentFiles(limitedFiles);
+  return limitedFiles;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
+      nodeIntegration: true,  // Enable Node.js in renderer for direct PDF processing
+      contextIsolation: false, // Required for nodeIntegration
       preload: path.join(__dirname, 'preload.js')
     }
+  });
+
+  // Disable caching in development to ensure code changes are picked up immediately
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    details.requestHeaders['Pragma'] = 'no-cache';
+    callback({ requestHeaders: details.requestHeaders });
   });
 
   mainWindow.loadFile('renderer/index.html');
@@ -24,7 +110,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await ensureGellyScapeDir();
   createWindow();
 
   app.on('activate', () => {
@@ -105,6 +192,13 @@ ipcMain.handle('pdf:process', async (event, filePath) => {
       detail: 'Processing finished successfully!'
     });
 
+    // Track this file in recent files
+    const pathCount = result.contentPaths?.paths?.length || 0;
+    await addRecentFile(filePath, {
+      ...result.metadata,
+      pathCount
+    });
+
     return {
       success: true,
       data: result
@@ -118,13 +212,215 @@ ipcMain.handle('pdf:process', async (event, filePath) => {
   }
 });
 
+// Process PDF and keep paths in main process (lightweight version for renderer)
+// Only sends layer metadata to renderer, not the full path data
+ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
+  try {
+    const fileExtension = path.extname(filePath).toLowerCase();
+    if (fileExtension !== '.pdf') {
+      return {
+        success: false,
+        error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported.`
+      };
+    }
+
+    event.sender.send('pdf:progress', {
+      operation: 'Loading',
+      detail: 'Reading PDF file...'
+    });
+
+    const fileBuffer = await fs.readFile(filePath);
+
+    // Verify PDF magic bytes
+    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
+    if (fileBuffer.length < pdfMagicBytes.length ||
+        !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
+      return {
+        success: false,
+        error: 'File does not appear to be a valid PDF.'
+      };
+    }
+
+    const processor = new PDFProcessor(fileBuffer);
+    processor.setProgressCallback((progress) => {
+      event.sender.send('pdf:progress', progress);
+    });
+
+    const result = await processor.process();
+
+    // Store paths in main process
+    currentPDFPaths = result.contentPaths?.paths || [];
+    currentPDFMetadata = result.metadata;
+
+    // Create SVG generator with paths
+    currentSVGGenerator = new SVGGenerator(currentPDFPaths);
+
+    // Set neatline if available
+    if (result.metadata.neatline) {
+      currentSVGGenerator.setNeatline(result.metadata.neatline);
+    }
+
+    // Set page dimensions for proper viewBox sizing
+    if (result.metadata.pageDimensions) {
+      currentSVGGenerator.setPageDimensions(result.metadata.pageDimensions);
+    }
+
+    // Get layer info (lightweight - just names and counts)
+    const layerInfo = currentSVGGenerator.getAvailableLayers();
+
+    // Track in recent files
+    const pathCount = currentPDFPaths.length;
+    await addRecentFile(filePath, {
+      ...result.metadata,
+      pathCount
+    });
+
+    event.sender.send('pdf:progress', {
+      operation: 'Complete',
+      detail: 'Processing finished!'
+    });
+
+    // Return lightweight data (no path arrays)
+    return {
+      success: true,
+      data: {
+        metadata: result.metadata,
+        layerInfo: layerInfo,
+        pathCount: pathCount,
+        pageCount: result.pageCount,
+        // Include bounds from neatline or calculated
+        bounds: result.metadata.neatline || null
+      }
+    };
+  } catch (error) {
+    console.error('Error processing PDF:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Generate SVG from stored paths (runs in main process)
+ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, uiOptions }) => {
+  try {
+    console.log('svg:generate IPC called');
+    console.log('Enabled layers received:', enabledLayers?.length || 0);
+
+    if (!currentSVGGenerator) {
+      console.log('No currentSVGGenerator available!');
+      return {
+        success: false,
+        error: 'No PDF loaded. Please load a PDF first.'
+      };
+    }
+
+    // UI options for preview (neatline, document border)
+    const uiOpts = {
+      showNeatline: uiOptions?.showNeatline !== false, // Default true
+      showDocBorder: uiOptions?.showDocBorder !== false // Default true
+    };
+
+    console.log('Calling currentSVGGenerator.generate...');
+    const result = currentSVGGenerator.generate(enabledLayers, bounds, uiOpts);
+    console.log('SVG generation result - pathCount:', result.stats?.pathCount, 'layerCount:', result.stats?.layerCount);
+
+    return {
+      success: true,
+      svg: result.svg,
+      stats: result.stats
+    };
+  } catch (error) {
+    console.error('Error generating SVG:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Generate and save SVG directly to file (avoids sending large string to renderer)
+ipcMain.handle('svg:export', async (event, { enabledLayers, bounds, options, filePath }) => {
+  try {
+    if (!currentSVGGenerator) {
+      return {
+        success: false,
+        error: 'No PDF loaded. Please load a PDF first.'
+      };
+    }
+
+    // Update generator options
+    if (options) {
+      currentSVGGenerator.options = { ...currentSVGGenerator.options, ...options };
+    }
+
+    event.sender.send('pdf:progress', {
+      operation: 'Generating SVG',
+      detail: 'Building vector graphics...'
+    });
+
+    // Export WITHOUT UI overlays (no neatline/border)
+    const result = currentSVGGenerator.generate(enabledLayers, bounds, {
+      showNeatline: false,
+      showDocBorder: false
+    });
+
+    event.sender.send('pdf:progress', {
+      operation: 'Saving',
+      detail: 'Writing file...'
+    });
+
+    // Save to file
+    const finalPath = filePath || path.join(gellyScapeDir, `export-${Date.now()}.svg`);
+    await fs.writeFile(finalPath, result.svg);
+
+    return {
+      success: true,
+      filePath: finalPath,
+      stats: result.stats
+    };
+  } catch (error) {
+    console.error('Error exporting SVG:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Get current layer info (if PDF is already loaded)
+ipcMain.handle('pdf:getLayerInfo', async () => {
+  if (!currentSVGGenerator) {
+    return { success: false, error: 'No PDF loaded' };
+  }
+  return {
+    success: true,
+    layerInfo: currentSVGGenerator.getAvailableLayers(),
+    pathCount: currentPDFPaths?.length || 0
+  };
+});
+
+// Get detailed debug info about layers and bounds
+ipcMain.handle('pdf:getDebugInfo', async () => {
+  if (!currentSVGGenerator) {
+    return { success: false, error: 'No PDF loaded' };
+  }
+  return {
+    success: true,
+    debugInfo: currentSVGGenerator.getDebugInfo()
+  };
+});
+
 // Export raster layer
 ipcMain.handle('export:raster', async (event, data) => {
   try {
     const { defaultPath, filters } = data;
 
+    // Use gellyscape directory if no path specified
+    const finalDefaultPath = defaultPath || path.join(gellyScapeDir, 'export.tif');
+
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      defaultPath,
+      defaultPath: finalDefaultPath,
       filters: filters || [
         { name: 'GeoTIFF', extensions: ['tif', 'tiff'] },
         { name: 'PNG', extensions: ['png'] },
@@ -154,8 +450,11 @@ ipcMain.handle('export:vector', async (event, data) => {
   try {
     const { defaultPath, filters } = data;
 
+    // Use gellyscape directory if no path specified
+    const finalDefaultPath = defaultPath || path.join(gellyScapeDir, 'export.svg');
+
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      defaultPath,
+      defaultPath: finalDefaultPath,
       filters: filters || [
         { name: 'SVG', extensions: ['svg'] },
         { name: 'GeoJSON', extensions: ['geojson', 'json'] },
@@ -196,6 +495,243 @@ ipcMain.handle('file:save', async (event, data) => {
     return {
       success: false,
       error: error.message
+    };
+  }
+});
+
+// Check if vpype is installed
+ipcMain.handle('vpype:check', async () => {
+  try {
+    const { stdout } = await execAsync('vpype --version');
+    return {
+      success: true,
+      installed: true,
+      version: stdout.trim()
+    };
+  } catch (error) {
+    return {
+      success: true,
+      installed: false,
+      error: error.message
+    };
+  }
+});
+
+// Get gellyscape directory path
+ipcMain.handle('path:gellyscape', async () => {
+  return gellyScapeDir;
+});
+
+// Get recent files
+ipcMain.handle('files:getRecent', async () => {
+  return await loadRecentFiles();
+});
+
+// Remove a file from recent files list
+ipcMain.handle('files:removeRecent', async (event, filePath) => {
+  const recentFiles = await loadRecentFiles();
+  const filtered = recentFiles.filter(f => f.path !== filePath);
+  await saveRecentFiles(filtered);
+  return filtered;
+});
+
+// Clear all recent files
+ipcMain.handle('files:clearRecent', async () => {
+  await saveRecentFiles([]);
+  return [];
+});
+
+// Check if a file exists (for validating recent files)
+ipcMain.handle('files:exists', async (event, filePath) => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+// Add a file to recent files (called from renderer when processing directly)
+ipcMain.handle('files:addRecent', async (event, { filePath, metadata }) => {
+  return await addRecentFile(filePath, metadata);
+});
+
+// Show file in Finder/Explorer
+ipcMain.handle('file:showInFinder', async (event, filePath) => {
+  try {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error('Error showing file in Finder:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Run vpype crop command - process each layer individually to preserve layer structure
+ipcMain.handle('vpype:crop', async (event, data) => {
+  try {
+    const { svgContent, cropX, cropY, cropWidth, cropHeight, paperSize } = data;
+
+    // Round crop values to 2 decimal places for cleaner command
+    const x = cropX.toFixed(2);
+    const y = cropY.toFixed(2);
+    const w = cropWidth.toFixed(2);
+    const h = cropHeight.toFixed(2);
+
+    console.log('Processing SVG with per-layer cropping');
+    console.log('Crop area:', { x, y, w, h });
+
+    // Parse the SVG to extract layers
+    const layerRegex = /<g id="layer-([^"]+)" data-layer="([^"]+)">([\s\S]*?)<\/g>/g;
+    const layers = [];
+    let match;
+
+    while ((match = layerRegex.exec(svgContent)) !== null) {
+      layers.push({
+        id: match[1],
+        name: match[2],
+        content: match[3]
+      });
+    }
+
+    console.log(`Found ${layers.length} layers to process`);
+
+    // Extract SVG header (everything before first layer)
+    const headerMatch = svgContent.match(/([\s\S]*?)<g id="layer-/);
+    const svgHeader = headerMatch ? headerMatch[1] : '';
+
+    // Extract viewBox for creating individual layer SVGs
+    const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/);
+    const viewBox = viewBoxMatch ? viewBoxMatch[1] : '0 0 800 600';
+
+    // Create temporary directory for this operation
+    const tmpDir = os.tmpdir();
+    const timestamp = Date.now();
+
+    // Process each layer through vpype individually
+    const processedLayers = [];
+
+    for (let i = 0; i < layers.length; i++) {
+      const layer = layers[i];
+      console.log(`Processing layer ${i + 1}/${layers.length}: ${layer.name}`);
+
+      // Create a temporary SVG for this layer only
+      const layerSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">
+  <g id="layer-${layer.id}" data-layer="${layer.name}">
+${layer.content}
+  </g>
+</svg>`;
+
+      const layerInputPath = path.join(tmpDir, `layer-${timestamp}-${i}-input.svg`);
+      const layerOutputPath = path.join(tmpDir, `layer-${timestamp}-${i}-output.svg`);
+
+      await fs.writeFile(layerInputPath, layerSvg, 'utf8');
+
+      // Build vpype command for this layer
+      const attrs = '--attr fill --attr stroke --attr stroke-width --attr stroke-linejoin --attr stroke-linecap --attr fill-rule';
+      const cropCmd = `crop ${x}mm ${y}mm ${w}mm ${h}mm`;
+      // Don't use --layer-label as it causes Python format string issues with special chars
+      const command = `vpype read ${attrs} "${layerInputPath}" ${cropCmd} write "${layerOutputPath}"`;
+
+      try {
+        const { stdout, stderr } = await execAsync(command, {
+          maxBuffer: 10 * 1024 * 1024
+        });
+
+        if (stderr) {
+          console.log(`vpype stderr for layer "${layer.name}":`, stderr);
+        }
+
+        // Read the processed layer
+        const processedSvg = await fs.readFile(layerOutputPath, 'utf8');
+
+        console.log(`Processed SVG for "${layer.name}" length:`, processedSvg.length);
+
+        // Extract the paths from the processed SVG (vpype outputs to layer 1)
+        const pathsMatch = processedSvg.match(/<g[^>]*id="1"[^>]*>([\s\S]*?)<\/g>/);
+        if (pathsMatch) {
+          console.log(`✓ Found paths for layer "${layer.name}", content length:`, pathsMatch[1].length);
+
+          // Convert layer name: rgb(r,g,b) to hex and clean special chars for the SVG
+          let displayName = layer.name;
+          const rgbMatch = displayName.match(/rgb\((\d+),(\d+),(\d+)\)/);
+          if (rgbMatch) {
+            const r = parseInt(rgbMatch[1]).toString(16).padStart(2, '0');
+            const g = parseInt(rgbMatch[2]).toString(16).padStart(2, '0');
+            const b = parseInt(rgbMatch[3]).toString(16).padStart(2, '0');
+            const hex = `${r}${g}${b}`;
+            displayName = displayName.replace(/rgb\(\d+,\d+,\d+\)/, hex);
+          }
+          displayName = displayName.replace(/::/g, '-');
+
+          processedLayers.push({
+            name: displayName,
+            id: layer.id,
+            content: pathsMatch[1]
+          });
+        } else {
+          console.log(`✗ No paths found for layer "${layer.name}"`);
+          console.log(`SVG preview (first 1500 chars):`, processedSvg.substring(0, 1500));
+        }
+
+        // Clean up layer temp files
+        await fs.unlink(layerInputPath).catch(() => {});
+        await fs.unlink(layerOutputPath).catch(() => {});
+      } catch (error) {
+        console.warn(`Warning: Failed to process layer "${layer.name}":`, error.message);
+        // Continue with other layers even if one fails
+      }
+    }
+
+    console.log(`Successfully processed ${processedLayers.length} layers`);
+
+    // Reconstruct the final SVG with all processed layers
+    let finalSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">
+  <title>Cropped GeoPDF - ${processedLayers.length} layers</title>
+`;
+
+    // Add each processed layer
+    processedLayers.forEach(layer => {
+      finalSvg += `  <g id="layer-${layer.id}" data-layer="${layer.name}">
+${layer.content}
+  </g>
+`;
+    });
+
+    finalSvg += '</svg>';
+
+    // Apply paper size layout if requested (to entire document)
+    if (paperSize && paperSize !== 'original') {
+      const finalInputPath = path.join(tmpDir, `final-${timestamp}-input.svg`);
+      const finalOutputPath = path.join(tmpDir, `final-${timestamp}-output.svg`);
+
+      await fs.writeFile(finalInputPath, finalSvg, 'utf8');
+
+      const layoutCmd = `vpype read "${finalInputPath}" layout ${paperSize} write "${finalOutputPath}"`;
+      await execAsync(layoutCmd, { maxBuffer: 10 * 1024 * 1024 });
+
+      finalSvg = await fs.readFile(finalOutputPath, 'utf8');
+
+      await fs.unlink(finalInputPath).catch(() => {});
+      await fs.unlink(finalOutputPath).catch(() => {});
+    }
+
+    return {
+      success: true,
+      svg: finalSvg,
+      layersProcessed: processedLayers.length
+    };
+  } catch (error) {
+    console.error('Error running vpype:', error);
+    return {
+      success: false,
+      error: error.message,
+      stderr: error.stderr || ''
     };
   }
 });
