@@ -65,9 +65,9 @@ class SVGGenerator {
 
     console.log('Filtered paths count:', filteredPaths.length);
 
-    // Calculate bounds and log them
-    const calculatedBounds = this.calculateBounds(filteredPaths);
-    console.log('Calculated bounds:', JSON.stringify(calculatedBounds));
+    // Log filtered paths bounds for debugging (not used for viewBox)
+    const filteredBounds = this.calculateBounds(filteredPaths);
+    console.log('Filtered paths bounds (debug only):', JSON.stringify(filteredBounds));
 
     if (filteredPaths.length === 0) {
       // Debug: show first few enabled layers and first few path layer names
@@ -82,16 +82,53 @@ class SVGGenerator {
         }
         console.log('Sample path layer:', samplePath.layer, 'color:', sampleColor);
         console.log('Sample sublayer would be:', `${samplePath.layer}::${sampleColor}`);
+
+        // Return empty SVG with correct dimensions to maintain consistent view
+        // Calculate bounds from ALL paths so the view doesn't jump when layers are re-enabled
+        const allBounds = bounds || this.calculateBounds(this.paths);
+        const padding = this.options.padding;
+        const viewBoxX = allBounds.minX - padding;
+        const viewBoxY = allBounds.minY - padding;
+        const viewBoxWidth = allBounds.width + padding * 2;
+        const viewBoxHeight = allBounds.height + padding * 2;
+
+        let svgWidth, svgHeight;
+        if (this.pageDimensions && this.pageDimensions.widthPt && this.pageDimensions.heightPt) {
+          svgWidth = this.pageDimensions.widthPt;
+          svgHeight = this.pageDimensions.heightPt;
+        } else {
+          svgWidth = allBounds.width;
+          svgHeight = allBounds.height;
+        }
+
+        const viewBox = `${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`;
+        const emptySvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(svgWidth)}pt" height="${Math.round(svgHeight)}pt" viewBox="${viewBox}">
+  <text x="${allBounds.minX + allBounds.width/2}" y="${allBounds.minY + allBounds.height/2}" text-anchor="middle" fill="#999" font-size="${Math.max(allBounds.width, allBounds.height) * 0.02}">No layers selected</text>
+</svg>`;
+
+        return {
+          svg: emptySvg,
+          stats: { pathCount: 0, layerCount: 0 }
+        };
       }
+
+      // No paths at all - return minimal placeholder
       return {
         svg: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><text x="200" y="150" text-anchor="middle" fill="#999">No paths to display</text></svg>',
         stats: { pathCount: 0, layerCount: 0 }
       };
     }
 
-    // Calculate bounds from actual path data
-    const pathBounds = bounds || this.calculateBounds(filteredPaths);
+    // Calculate bounds from ALL paths (not just filtered) to maintain consistent view
+    // This prevents the "zoom to selection" behavior when selecting small layers
+    console.log('Calculating bounds from ALL paths. this.paths count:', this.paths.length);
+    const allPathBounds = this.calculateBounds(this.paths);
+    console.log('ALL paths bounds:', JSON.stringify(allPathBounds));
+    console.log('Provided bounds param:', bounds ? JSON.stringify(bounds) : 'null');
+    const pathBounds = bounds || allPathBounds;
     let { minX, minY, maxX, maxY, width, height } = pathBounds;
+    console.log('Using bounds:', JSON.stringify({ minX, minY, maxX, maxY, width, height }));
 
     // Always use calculated path bounds for viewBox - the paths may be in
     // a different coordinate space than page dimensions (especially in GeoPDFs)

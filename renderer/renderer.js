@@ -1264,15 +1264,10 @@ function renderCanvasPreview() {
 
   console.timeEnd('Render:FilterPaths');
 
-  if (filteredPaths.length === 0) {
-    mapPreviewDiv.innerHTML = '<div style="color: #999; padding: 20px; text-align: center;">No paths to display. Select layers from the Vector tab.</div>';
-    console.timeEnd('Render:Total');
-    return;
-  }
-
   console.time('Render:CalcBounds');
 
-  // Use cached bounds if available
+  // Use cached bounds if available - calculate BEFORE checking if filteredPaths is empty
+  // This ensures consistent sizing even when no layers are selected
   let minX, minY, maxX, maxY, width, height;
 
   if (cachedBounds) {
@@ -1365,6 +1360,22 @@ function renderCanvasPreview() {
   const centerY = minY + height / 2;
 
   console.timeEnd('Render:CalcBounds');
+
+  // Handle empty selection - render empty canvas with "No layers selected" message
+  // This maintains consistent canvas size instead of switching to a div
+  if (filteredPaths.length === 0) {
+    // Draw centered message
+    ctx.fillStyle = '#999';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('No layers selected', containerWidth / 2, containerHeight / 2);
+
+    mapPreviewDiv.innerHTML = '';
+    mapPreviewDiv.appendChild(canvas);
+    console.timeEnd('Render:Total');
+    return;
+  }
 
   console.log(`Transform: center content at (${centerX.toFixed(0)}, ${centerY.toFixed(0)}), scale=${scale.toFixed(6)}`);
 
@@ -1604,6 +1615,16 @@ function generateSVG(isExport) {
   });
 
   if (filteredPaths.length === 0) {
+    // Return empty SVG with correct dimensions to maintain consistent view
+    if (cachedBounds) {
+      const { minX, minY, width, height } = cachedBounds;
+      const padding = 10;
+      const viewBox = `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
+      const textX = minX + width / 2;
+      const textY = minY + height / 2;
+      const fontSize = Math.max(width, height) * 0.02;
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="${viewBox}"><text x="${textX}" y="${textY}" text-anchor="middle" fill="#999" font-size="${fontSize}">No layers selected</text></svg>`;
+    }
     return '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><text x="200" y="150" text-anchor="middle" fill="#999">No paths to display</text></svg>';
   }
 
