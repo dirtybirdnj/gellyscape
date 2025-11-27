@@ -627,10 +627,11 @@ class PDFProcessor {
             }
 
             // Determine if we need to transform coordinates during parsing
-            // 2025 format (Topobuilder) uses Form XObjects with complex CTM chains
+            // 100K and 2025/Topobuilder formats use Form XObjects with complex CTM chains
             // that require pre-transforming coordinates to page space
-            const is2025Format = this.metadata?.usgsFormat?.isTopobuilder ||
-                                 this.metadata?.usgsFormat?.generation === '2025';
+            const needsCoordTransform = this.metadata?.usgsFormat?.isTopobuilder ||
+                                        this.metadata?.usgsFormat?.generation === '2025' ||
+                                        this.metadata?.usgsFormat?.scale === '100k';
 
             // Parse the content stream (this is already sync)
             // Pass the graphics state from the previous stream so colors carry over
@@ -641,7 +642,7 @@ class PDFProcessor {
               resourcesDict: resources,
               globalLayerNames: this.layerNames,
               initialGraphicsState: carryOverGraphicsState,
-              transformCoordsDuringParsing: is2025Format
+              transformCoordsDuringParsing: needsCoordTransform
             });
             const {paths, textObjects, fontDetails, endingGraphicsState} = parser.parseContentStream(contentData);
 
