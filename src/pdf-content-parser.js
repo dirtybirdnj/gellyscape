@@ -61,6 +61,13 @@ class PDFContentParser {
       this.graphicsState.ctm = { ...options.initialCTM };
     }
 
+    // Transform coordinates during parsing option
+    // When enabled, all coordinates are transformed to page space as they are parsed
+    // and stored with identity transform. This fixes issues with complex nested
+    // CTM compositions in 100K/2025 format files where the composed CTM translation
+    // doesn't scale correctly.
+    this.transformCoordsDuringParsing = options.transformCoordsDuringParsing || false;
+
     // Initial graphics state - used to carry over state from previous content streams
     // PDF content streams are concatenated, so colors set in stream N carry to stream N+1
     if (options.initialGraphicsState) {
@@ -355,8 +362,9 @@ class PDFContentParser {
       return;
     }
 
-    const x = parseFloat(operands[0]);
-    const y = parseFloat(operands[1]);
+    const rawX = parseFloat(operands[0]);
+    const rawY = parseFloat(operands[1]);
+    const { x, y } = this.transformPoint(rawX, rawY);
 
     // Start new subpath
     if (!this.currentPath) {
@@ -375,18 +383,20 @@ class PDFContentParser {
   opLineTo(operands) {
     if (operands.length < 2) return;
 
-    const x = parseFloat(operands[0]);
-    const y = parseFloat(operands[1]);
+    const rawX = parseFloat(operands[0]);
+    const rawY = parseFloat(operands[1]);
+    const { x, y } = this.transformPoint(rawX, rawY);
 
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
+      const origin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: { x: 0, y: 0 }
+        startPoint: origin
       });
-      this.currentPath.currentPoint = { x: 0, y: 0 };
+      this.currentPath.currentPoint = origin;
     }
 
     const currentSubpath = this.getCurrentSubpath();
@@ -403,35 +413,33 @@ class PDFContentParser {
   opCurveTo(operands) {
     if (operands.length < 6) return;
 
-    const x1 = parseFloat(operands[0]);
-    const y1 = parseFloat(operands[1]);
-    const x2 = parseFloat(operands[2]);
-    const y2 = parseFloat(operands[3]);
-    const x3 = parseFloat(operands[4]);
-    const y3 = parseFloat(operands[5]);
+    const cp1 = this.transformPoint(parseFloat(operands[0]), parseFloat(operands[1]));
+    const cp2 = this.transformPoint(parseFloat(operands[2]), parseFloat(operands[3]));
+    const end = this.transformPoint(parseFloat(operands[4]), parseFloat(operands[5]));
 
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
+      const origin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: { x: 0, y: 0 }
+        startPoint: origin
       });
-      this.currentPath.currentPoint = { x: 0, y: 0 };
+      this.currentPath.currentPoint = origin;
     }
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
       currentSubpath.segments.push({
         type: 'cubic',
-        cp1: { x: x1, y: y1 },
-        cp2: { x: x2, y: y2 },
-        point: { x: x3, y: y3 }
+        cp1: cp1,
+        cp2: cp2,
+        point: end
       });
     }
 
-    this.currentPath.currentPoint = { x: x3, y: y3 };
+    this.currentPath.currentPoint = end;
   }
 
   opCurveToV(operands) {
@@ -440,31 +448,31 @@ class PDFContentParser {
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
+      const origin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: { x: 0, y: 0 }
+        startPoint: origin
       });
-      this.currentPath.currentPoint = { x: 0, y: 0 };
+      this.currentPath.currentPoint = origin;
     }
 
-    const cp = this.currentPath.currentPoint;
-    const x2 = parseFloat(operands[0]);
-    const y2 = parseFloat(operands[1]);
-    const x3 = parseFloat(operands[2]);
-    const y3 = parseFloat(operands[3]);
+    // v operator: first control point is the current point (already transformed)
+    const cp1 = this.currentPath.currentPoint;
+    const cp2 = this.transformPoint(parseFloat(operands[0]), parseFloat(operands[1]));
+    const end = this.transformPoint(parseFloat(operands[2]), parseFloat(operands[3]));
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
       currentSubpath.segments.push({
         type: 'cubic',
-        cp1: { x: cp.x, y: cp.y },
-        cp2: { x: x2, y: y2 },
-        point: { x: x3, y: y3 }
+        cp1: { x: cp1.x, y: cp1.y },
+        cp2: cp2,
+        point: end
       });
     }
 
-    this.currentPath.currentPoint = { x: x3, y: y3 };
+    this.currentPath.currentPoint = end;
   }
 
   opCurveToY(operands) {
@@ -473,30 +481,30 @@ class PDFContentParser {
     // If no current path, create one with implicit moveto to (0,0)
     if (!this.currentPath) {
       this.currentPath = this.createPath();
+      const origin = this.transformPoint(0, 0);
       this.currentPath.subpaths.push({
         segments: [],
         closed: false,
-        startPoint: { x: 0, y: 0 }
+        startPoint: origin
       });
-      this.currentPath.currentPoint = { x: 0, y: 0 };
+      this.currentPath.currentPoint = origin;
     }
 
-    const x1 = parseFloat(operands[0]);
-    const y1 = parseFloat(operands[1]);
-    const x3 = parseFloat(operands[2]);
-    const y3 = parseFloat(operands[3]);
+    // y operator: second control point equals the endpoint
+    const cp1 = this.transformPoint(parseFloat(operands[0]), parseFloat(operands[1]));
+    const end = this.transformPoint(parseFloat(operands[2]), parseFloat(operands[3]));
 
     const currentSubpath = this.getCurrentSubpath();
     if (currentSubpath) {
       currentSubpath.segments.push({
         type: 'cubic',
-        cp1: { x: x1, y: y1 },
-        cp2: { x: x3, y: y3 },
-        point: { x: x3, y: y3 }
+        cp1: cp1,
+        cp2: end,  // cp2 == endpoint for y operator
+        point: end
       });
     }
 
-    this.currentPath.currentPoint = { x: x3, y: y3 };
+    this.currentPath.currentPoint = end;
   }
 
   opClosePath() {
@@ -520,18 +528,24 @@ class PDFContentParser {
       this.currentPath = this.createPath();
     }
 
+    // Transform all 4 corners
+    const p1 = this.transformPoint(x, y);
+    const p2 = this.transformPoint(x + width, y);
+    const p3 = this.transformPoint(x + width, y + height);
+    const p4 = this.transformPoint(x, y + height);
+
     // Create rectangle as closed path
     this.currentPath.subpaths.push({
       segments: [
-        { type: 'line', point: { x: x + width, y } },
-        { type: 'line', point: { x: x + width, y: y + height } },
-        { type: 'line', point: { x, y: y + height } }
+        { type: 'line', point: p2 },
+        { type: 'line', point: p3 },
+        { type: 'line', point: p4 }
       ],
       closed: true,
-      startPoint: { x, y }
+      startPoint: p1
     });
 
-    this.currentPath.currentPoint = { x, y };
+    this.currentPath.currentPoint = p1;
   }
 
   // Path painting operators
@@ -632,7 +646,10 @@ class PDFContentParser {
       f: parseFloat(operands[5])
     };
 
-    this.graphicsState.ctm = this.multiplyMatrices(this.graphicsState.ctm, matrix);
+    // PDF spec: cm concatenates by pre-multiplication: CTM' = matrix × CTM
+    // This means the new matrix is applied FIRST, then the existing CTM
+    // So a point P transforms as: P' = P × matrix × CTM
+    this.graphicsState.ctm = this.multiplyMatrices(matrix, this.graphicsState.ctm);
   }
 
   // Color operators
@@ -686,8 +703,29 @@ class PDFContentParser {
       currentPoint: null,
       operation: null,
       style: {},
-      transform: this.graphicsState.ctm,
+      // Clone the CTM to capture the current transform state
+      // Without cloning, all paths would share the same CTM object reference
+      // and subsequent cm operations would modify ALL paths' transforms
+      // When transformCoordsDuringParsing is enabled, use identity since coords are pre-transformed
+      transform: this.transformCoordsDuringParsing
+        ? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+        : { ...this.graphicsState.ctm },
       layer: this.currentLayer // Track which layer/OCG this path belongs to
+    };
+  }
+
+  /**
+   * Transform a point from user space to page space using current CTM
+   * This is used when transformCoordsDuringParsing is enabled
+   */
+  transformPoint(x, y) {
+    if (!this.transformCoordsDuringParsing) {
+      return { x, y };
+    }
+    const ctm = this.graphicsState.ctm;
+    return {
+      x: ctm.a * x + ctm.c * y + ctm.e,
+      y: ctm.b * x + ctm.d * y + ctm.f
     };
   }
 
@@ -1304,7 +1342,8 @@ class PDFContentParser {
           fontDict: formFontDict || this.fontDict,
           resourcesDict: resolvedFormResources,
           globalLayerNames: this.globalLayerNames, // Pass global layer names for nested XObjects
-          initialCTM: effectiveCTM // Pass the effective transform to child parser
+          initialCTM: effectiveCTM, // Pass the effective transform to child parser
+          transformCoordsDuringParsing: this.transformCoordsDuringParsing // Pass through to child
         });
 
         // Increment recursion depth

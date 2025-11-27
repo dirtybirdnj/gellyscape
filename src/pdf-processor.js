@@ -118,7 +118,8 @@ class PDFProcessor {
         CreationDate: this.pdfDoc.getCreationDate(),
         ModDate: this.pdfDoc.getModificationDate(),
         Author: this.pdfDoc.getAuthor(),
-        Subject: this.pdfDoc.getSubject()
+        Subject: this.pdfDoc.getSubject(),
+        Keywords: this.pdfDoc.getKeywords()
       };
 
       // Detect USGS format
@@ -625,6 +626,12 @@ class PDFProcessor {
               continue;
             }
 
+            // Determine if we need to transform coordinates during parsing
+            // 2025 format (Topobuilder) uses Form XObjects with complex CTM chains
+            // that require pre-transforming coordinates to page space
+            const is2025Format = this.metadata?.usgsFormat?.isTopobuilder ||
+                                 this.metadata?.usgsFormat?.generation === '2025';
+
             // Parse the content stream (this is already sync)
             // Pass the graphics state from the previous stream so colors carry over
             const parser = new PDFContentParser({
@@ -633,7 +640,8 @@ class PDFProcessor {
               fontDict: fontDict,
               resourcesDict: resources,
               globalLayerNames: this.layerNames,
-              initialGraphicsState: carryOverGraphicsState
+              initialGraphicsState: carryOverGraphicsState,
+              transformCoordsDuringParsing: is2025Format
             });
             const {paths, textObjects, fontDetails, endingGraphicsState} = parser.parseContentStream(contentData);
 
