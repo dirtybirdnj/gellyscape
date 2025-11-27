@@ -41,6 +41,10 @@ window.electronAPI = {
   getGellyScapePath: () => ipcRenderer.invoke('path:gellyscape'),
   showInFinder: (filePath) => ipcRenderer.invoke('file:showInFinder', filePath),
 
+  // File dialogs and writing
+  showSaveDialog: (options) => ipcRenderer.invoke('dialog:save', options),
+  writeFile: (data) => ipcRenderer.invoke('file:write', data),
+
   // Recent files
   getRecentFiles: () => ipcRenderer.invoke('files:getRecent'),
   removeRecentFile: (filePath) => ipcRenderer.invoke('files:removeRecent', filePath),

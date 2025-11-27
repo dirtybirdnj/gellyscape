@@ -570,6 +570,37 @@ ipcMain.handle('file:showInFinder', async (event, filePath) => {
   }
 });
 
+// Show save dialog
+ipcMain.handle('dialog:save', async (event, options) => {
+  try {
+    const { dialog } = require('electron');
+    const result = await dialog.showSaveDialog({
+      title: options.title || 'Save File',
+      defaultPath: options.defaultPath,
+      filters: options.filters || [{ name: 'All Files', extensions: ['*'] }]
+    });
+    return result.canceled ? null : result.filePath;
+  } catch (error) {
+    console.error('Error showing save dialog:', error);
+    return null;
+  }
+});
+
+// Write file
+ipcMain.handle('file:write', async (event, { filePath, content }) => {
+  try {
+    const fs = require('fs');
+    fs.writeFileSync(filePath, content, 'utf8');
+    return { success: true };
+  } catch (error) {
+    console.error('Error writing file:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
 // Run vpype crop command - process each layer individually to preserve layer structure
 ipcMain.handle('vpype:crop', async (event, data) => {
   try {

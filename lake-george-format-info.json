@@ -1,0 +1,194 @@
+{
+  "formatInfo": {
+    "scale": "100k",
+    "year": 2025,
+    "generation": "2025",
+    "isTopobuilder": true,
+    "isGeoPDF": true,
+    "confidence": "high",
+    "scaleDescription": "1:100,000 scale topographic map",
+    "metadata": {
+      "subject": "100K CONUS Map",
+      "keywords": "Topobuilder",
+      "creator": "Esri ArcSOC 13.3.0.51575",
+      "producer": "",
+      "title": "NY_100K_Topo_1_20251121_055620498898_TM_geo.pdf",
+      "creatorVersion": {
+        "software": "ArcSOC",
+        "version": "13.3.0.51575"
+      },
+      "scaleInfo": {
+        "scale": "100k",
+        "type": "topographic",
+        "description": "1:100,000 scale topographic map"
+      },
+      "creationDate": "D:20251121055617Z",
+      "modDate": "D:20251121055627Z"
+    },
+    "layers": {
+      "count": 13,
+      "names": [
+        "Map Collar",
+        "Map Frame",
+        "Terrain",
+        "Contours",
+        "Hydrography",
+        "General Hydrography",
+        "Transportation",
+        "Airports",
+        "Railroads",
+        "Trails",
+        "Roads",
+        "Road Shields",
+        "Projection and Grids"
+      ],
+      "hasLayers": true
+    },
+    "detectedAt": "2025-11-24T04:04:33.153Z"
+  },
+  "extractionSummary": {
+    "pages": 1,
+    "rasterLayers": 0,
+    "vectorAnnotations": 1,
+    "contentPaths": 33508,
+    "textObjects": 3384,
+    "statistics": {
+      "total": 33508,
+      "byOperation": {
+        "fill": 5019,
+        "stroke": 26579,
+        "fill-stroke": 1910
+      },
+      "byColor": {
+        "rgb(255,255,255)": {
+          "fill": 7,
+          "stroke": 1535
+        },
+        "rgb(116,154,209)": {
+          "fill": 0,
+          "stroke": 8668
+        },
+        "rgb(217,233,255)": {
+          "fill": 1909,
+          "stroke": 0
+        },
+        "rgb(104,104,104)": {
+          "fill": 0,
+          "stroke": 25
+        },
+        "rgb(156,156,156)": {
+          "fill": 2,
+          "stroke": 0
+        },
+        "rgb(52,52,52)": {
+          "fill": 0,
+          "stroke": 554
+        },
+        "rgb(179,134,89)": {
+          "fill": 0,
+          "stroke": 3458
+        },
+        "rgb(166,116,66)": {
+          "fill": 0,
+          "stroke": 850
+        },
+        "rgb(250,250,250)": {
+          "fill": 66,
+          "stroke": 72
+        },
+        "rgb(158,99,59)": {
+          "fill": 0,
+          "stroke": 8
+        },
+        "rgb(150,151,150)": {
+          "fill": 0,
+          "stroke": 5667
+        },
+        "rgb(235,235,235)": {
+          "fill": 0,
+          "stroke": 70
+        },
+        "rgb(155,155,155)": {
+          "fill": 0,
+          "stroke": 2
+        },
+        "rgb(120,121,120)": {
+          "fill": 0,
+          "stroke": 70
+        },
+        "rgb(201,103,103)": {
+          "fill": 0,
+          "stroke": 437
+        },
+        "rgb(175,75,76)": {
+          "fill": 0,
+          "stroke": 488
+        },
+        "rgb(130,41,41)": {
+          "fill": 0,
+          "stroke": 116
+        },
+        "rgb(130,131,130)": {
+          "fill": 0,
+          "stroke": 1535
+        },
+        "rgb(14,74,225)": {
+          "fill": 2,
+          "stroke": 0
+        },
+        "rgb(51,51,51)": {
+          "fill": 6,
+          "stroke": 0
+        },
+        "rgb(232,155,36)": {
+          "fill": 3,
+          "stroke": 0
+        },
+        "rgb(255,170,0)": {
+          "fill": 0,
+          "stroke": 27
+        },
+        "rgb(0,0,0)": {
+          "fill": 61,
+          "stroke": 33
+        },
+        "rgb(240,240,240)": {
+          "fill": 4873,
+          "stroke": 4873
+        },
+        "rgb(255,0,0)": {
+          "fill": 0,
+          "stroke": 1
+        }
+      },
+      "averageOperations": "91.21"
+    }
+  },
+  "layerMapping": {
+    "hydrography": [
+      "Hydrography",
+      "General Hydrography"
+    ],
+    "transportation": [
+      "Transportation",
+      "Railroads",
+      "Trails",
+      "Roads",
+      "Road Shields"
+    ],
+    "terrain": [
+      "Terrain",
+      "Contours"
+    ],
+    "boundaries": [],
+    "vegetation": [],
+    "structures": [
+      "Airports"
+    ],
+    "labels": [
+      "Map Collar",
+      "Map Frame",
+      "Projection and Grids"
+    ]
+  }
+}

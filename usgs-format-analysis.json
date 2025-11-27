@@ -1,0 +1,2886 @@
+[
+  {
+    "filename": "MA_75MinuteTopo1_20251121_062032758784_TM_geo.pdf",
+    "filepath": "/Users/mgilbert/Code/gellyscape/samples/MA_75MinuteTopo1_20251121_062032758784_TM_geo.pdf",
+    "fileSize": 13138834,
+    "metadata": {
+      "Author": "USGS",
+      "CreationDate": "D:20251121062028Z",
+      "Creator": "Esri ArcSOC 13.3.0.51575",
+      "Keywords": "Topobuilder",
+      "ModDate": "D:20251124034716Z",
+      "Subject": "24K CONUS Map",
+      "Title": "MA_75MinuteTopo1_20251121_062032758784_TM_geo.pdf",
+      "keywords": "Topobuilder",
+      "Producer": "pdf-lib (https://github.com/Hopding/pdf-lib)"
+    },
+    "layers": [
+      {
+        "index": 0,
+        "name": "Labels",
+        "intent": [],
+        "ref": "157 0 R"
+      },
+      {
+        "index": 1,
+        "name": "Labels",
+        "intent": [],
+        "ref": "158 0 R"
+      },
+      {
+        "index": 2,
+        "name": "Map Collar",
+        "intent": [
+          "/View"
+        ],
+        "ref": "159 0 R"
+      },
+      {
+        "index": 3,
+        "name": "Map Elements",
+        "intent": [
+          "/View"
+        ],
+        "ref": "160 0 R"
+      },
+      {
+        "index": 4,
+        "name": "Map Frame",
+        "intent": [
+          "/View"
+        ],
+        "ref": "161 0 R"
+      },
+      {
+        "index": 5,
+        "name": "Land Cover",
+        "intent": [
+          "/View"
+        ],
+        "ref": "162 0 R"
+      },
+      {
+        "index": 6,
+        "name": "Terrain",
+        "intent": [
+          "/View"
+        ],
+        "ref": "163 0 R"
+      },
+      {
+        "index": 7,
+        "name": "Contours",
+        "intent": [
+          "/View"
+        ],
+        "ref": "164 0 R"
+      },
+      {
+        "index": 8,
+        "name": "Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "165 0 R"
+      },
+      {
+        "index": 9,
+        "name": "Wetlands",
+        "intent": [
+          "/View"
+        ],
+        "ref": "166 0 R"
+      },
+      {
+        "index": 10,
+        "name": "General Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "167 0 R"
+      },
+      {
+        "index": 11,
+        "name": "Transportation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "168 0 R"
+      },
+      {
+        "index": 12,
+        "name": "Airports",
+        "intent": [
+          "/View"
+        ],
+        "ref": "169 0 R"
+      },
+      {
+        "index": 13,
+        "name": "Railroads",
+        "intent": [
+          "/View"
+        ],
+        "ref": "170 0 R"
+      },
+      {
+        "index": 14,
+        "name": "Trails",
+        "intent": [
+          "/View"
+        ],
+        "ref": "171 0 R"
+      },
+      {
+        "index": 15,
+        "name": "Roads",
+        "intent": [
+          "/View"
+        ],
+        "ref": "172 0 R"
+      },
+      {
+        "index": 16,
+        "name": "Road Shields",
+        "intent": [
+          "/View"
+        ],
+        "ref": "173 0 R"
+      },
+      {
+        "index": 17,
+        "name": "Structures",
+        "intent": [
+          "/View"
+        ],
+        "ref": "174 0 R"
+      },
+      {
+        "index": 18,
+        "name": "Recreation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "175 0 R"
+      },
+      {
+        "index": 19,
+        "name": "Public Services",
+        "intent": [
+          "/View"
+        ],
+        "ref": "176 0 R"
+      },
+      {
+        "index": 20,
+        "name": "Emergency Services",
+        "intent": [
+          "/View"
+        ],
+        "ref": "177 0 R"
+      },
+      {
+        "index": 21,
+        "name": "Geographic Names",
+        "intent": [
+          "/View"
+        ],
+        "ref": "178 0 R"
+      },
+      {
+        "index": 22,
+        "name": "Populated Places",
+        "intent": [
+          "/View"
+        ],
+        "ref": "179 0 R"
+      },
+      {
+        "index": 23,
+        "name": "Natural Features",
+        "intent": [
+          "/View"
+        ],
+        "ref": "180 0 R"
+      },
+      {
+        "index": 24,
+        "name": "Projection and Grids",
+        "intent": [
+          "/View"
+        ],
+        "ref": "181 0 R"
+      }
+    ],
+    "colors": {},
+    "fonts": {},
+    "geospatial": {
+      "hasViewport": false,
+      "hasLGIDict": false,
+      "hasMeasure": false,
+      "isGeoPDF": false
+    },
+    "structure": {
+      "pageCount": 1,
+      "pageSize": {
+        "width": 1728,
+        "height": 2088
+      }
+    }
+  },
+  {
+    "filename": "VT_250K_Topo_20251121_054343748075_TM_geo.pdf",
+    "filepath": "/Users/mgilbert/Code/gellyscape/samples/VT_250K_Topo_20251121_054343748075_TM_geo.pdf",
+    "fileSize": 23478607,
+    "metadata": {
+      "Author": "U.S. Geological Survey",
+      "CreationDate": "D:20251121054339Z",
+      "Creator": "Esri ArcSOC 13.3.0.51575",
+      "Keywords": "Topobuilder",
+      "ModDate": "D:20251124034716Z",
+      "Subject": "250K Map",
+      "Title": "250K Topo, VT, 250000, Quad, 20251121, USGS",
+      "keywords": "Topobuilder",
+      "Producer": "pdf-lib (https://github.com/Hopding/pdf-lib)"
+    },
+    "layers": [
+      {
+        "index": 0,
+        "name": "Labels",
+        "intent": [],
+        "ref": "92 0 R"
+      },
+      {
+        "index": 1,
+        "name": "Map Collar",
+        "intent": [
+          "/View"
+        ],
+        "ref": "93 0 R"
+      },
+      {
+        "index": 2,
+        "name": "Map Elements",
+        "intent": [
+          "/View"
+        ],
+        "ref": "94 0 R"
+      },
+      {
+        "index": 3,
+        "name": "Map Frame",
+        "intent": [
+          "/View"
+        ],
+        "ref": "95 0 R"
+      },
+      {
+        "index": 4,
+        "name": "Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "96 0 R"
+      },
+      {
+        "index": 5,
+        "name": "Federal Administrated Lands",
+        "intent": [
+          "/View"
+        ],
+        "ref": "97 0 R"
+      },
+      {
+        "index": 6,
+        "name": "Department of Defense",
+        "intent": [
+          "/View"
+        ],
+        "ref": "98 0 R"
+      },
+      {
+        "index": 7,
+        "name": "Fish and Wildlife Service",
+        "intent": [
+          "/View"
+        ],
+        "ref": "99 0 R"
+      },
+      {
+        "index": 8,
+        "name": "Wilderness",
+        "intent": [
+          "/View"
+        ],
+        "ref": "100 0 R"
+      },
+      {
+        "index": 9,
+        "name": "Forest Service",
+        "intent": [
+          "/View"
+        ],
+        "ref": "101 0 R"
+      },
+      {
+        "index": 10,
+        "name": "Jurisdictional Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "102 0 R"
+      },
+      {
+        "index": 11,
+        "name": "County or Equivalent",
+        "intent": [
+          "/View"
+        ],
+        "ref": "103 0 R"
+      },
+      {
+        "index": 12,
+        "name": "State or Territory",
+        "intent": [
+          "/View"
+        ],
+        "ref": "104 0 R"
+      },
+      {
+        "index": 13,
+        "name": "International",
+        "intent": [
+          "/View"
+        ],
+        "ref": "105 0 R"
+      },
+      {
+        "index": 14,
+        "name": "Land Cover",
+        "intent": [
+          "/View"
+        ],
+        "ref": "106 0 R"
+      },
+      {
+        "index": 15,
+        "name": "Terrain",
+        "intent": [
+          "/View"
+        ],
+        "ref": "107 0 R"
+      },
+      {
+        "index": 16,
+        "name": "Contours",
+        "intent": [
+          "/View"
+        ],
+        "ref": "108 0 R"
+      },
+      {
+        "index": 17,
+        "name": "Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "109 0 R"
+      },
+      {
+        "index": 18,
+        "name": "General Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "110 0 R"
+      },
+      {
+        "index": 19,
+        "name": "Transportation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "111 0 R"
+      },
+      {
+        "index": 20,
+        "name": "Roads",
+        "intent": [
+          "/View"
+        ],
+        "ref": "112 0 R"
+      },
+      {
+        "index": 21,
+        "name": "Road Shields",
+        "intent": [
+          "/View"
+        ],
+        "ref": "113 0 R"
+      },
+      {
+        "index": 22,
+        "name": "Airports",
+        "intent": [
+          "/View"
+        ],
+        "ref": "114 0 R"
+      },
+      {
+        "index": 23,
+        "name": "Structures",
+        "intent": [
+          "/View"
+        ],
+        "ref": "115 0 R"
+      },
+      {
+        "index": 24,
+        "name": "Public Services",
+        "intent": [
+          "/View"
+        ],
+        "ref": "116 0 R"
+      },
+      {
+        "index": 25,
+        "name": "Geographic Names",
+        "intent": [
+          "/View"
+        ],
+        "ref": "117 0 R"
+      },
+      {
+        "index": 26,
+        "name": "Populated Places",
+        "intent": [
+          "/View"
+        ],
+        "ref": "118 0 R"
+      },
+      {
+        "index": 27,
+        "name": "Natural Features",
+        "intent": [
+          "/View"
+        ],
+        "ref": "119 0 R"
+      },
+      {
+        "index": 28,
+        "name": "Projection and Grids",
+        "intent": [
+          "/View"
+        ],
+        "ref": "120 0 R"
+      }
+    ],
+    "colors": {},
+    "fonts": {},
+    "geospatial": {
+      "hasViewport": false,
+      "hasLGIDict": false,
+      "hasMeasure": false,
+      "isGeoPDF": false
+    },
+    "structure": {
+      "pageCount": 1,
+      "pageSize": {
+        "width": 2383.0344,
+        "height": 1872
+      }
+    }
+  },
+  {
+    "filename": "ME_100K_Topo_1_20251121_053539805876_TM_geo.pdf",
+    "filepath": "/Users/mgilbert/Code/gellyscape/samples/ME_100K_Topo_1_20251121_053539805876_TM_geo.pdf",
+    "fileSize": 26188944,
+    "metadata": {
+      "Author": "USGS",
+      "CreationDate": "D:20251121053536Z",
+      "Creator": "Esri ArcSOC 13.3.0.51575",
+      "Keywords": "Topobuilder",
+      "ModDate": "D:20251124034716Z",
+      "Subject": "100K CONUS Map",
+      "Title": "ME_100K_Topo_1_20251121_053539805876_TM_geo.pdf",
+      "keywords": "Topobuilder",
+      "Producer": "pdf-lib (https://github.com/Hopding/pdf-lib)"
+    },
+    "layers": [
+      {
+        "index": 0,
+        "name": "Map Collar",
+        "intent": [
+          "/View"
+        ],
+        "ref": "649 0 R"
+      },
+      {
+        "index": 1,
+        "name": "Map Frame",
+        "intent": [
+          "/View"
+        ],
+        "ref": "650 0 R"
+      },
+      {
+        "index": 2,
+        "name": "Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "651 0 R"
+      },
+      {
+        "index": 3,
+        "name": "Federal Administrated Lands",
+        "intent": [
+          "/View"
+        ],
+        "ref": "652 0 R"
+      },
+      {
+        "index": 4,
+        "name": "U.S. Fish and Wildlife Service",
+        "intent": [
+          "/View"
+        ],
+        "ref": "653 0 R"
+      },
+      {
+        "index": 5,
+        "name": "National Park Service",
+        "intent": [
+          "/View"
+        ],
+        "ref": "654 0 R"
+      },
+      {
+        "index": 6,
+        "name": "Jurisdictional Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "655 0 R"
+      },
+      {
+        "index": 7,
+        "name": "County or Equivalent",
+        "intent": [
+          "/View"
+        ],
+        "ref": "656 0 R"
+      },
+      {
+        "index": 8,
+        "name": "State or Territory",
+        "intent": [
+          "/View"
+        ],
+        "ref": "657 0 R"
+      },
+      {
+        "index": 9,
+        "name": "Land Cover",
+        "intent": [
+          "/View"
+        ],
+        "ref": "658 0 R"
+      },
+      {
+        "index": 10,
+        "name": "Terrain",
+        "intent": [
+          "/View"
+        ],
+        "ref": "659 0 R"
+      },
+      {
+        "index": 11,
+        "name": "Shaded Relief",
+        "intent": [
+          "/View"
+        ],
+        "ref": "660 0 R"
+      },
+      {
+        "index": 12,
+        "name": "Contours",
+        "intent": [
+          "/View"
+        ],
+        "ref": "661 0 R"
+      },
+      {
+        "index": 13,
+        "name": "Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "662 0 R"
+      },
+      {
+        "index": 14,
+        "name": "Wetlands",
+        "intent": [
+          "/View"
+        ],
+        "ref": "663 0 R"
+      },
+      {
+        "index": 15,
+        "name": "General Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "664 0 R"
+      },
+      {
+        "index": 16,
+        "name": "Transportation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "665 0 R"
+      },
+      {
+        "index": 17,
+        "name": "Airports",
+        "intent": [
+          "/View"
+        ],
+        "ref": "666 0 R"
+      },
+      {
+        "index": 18,
+        "name": "Roads",
+        "intent": [
+          "/View"
+        ],
+        "ref": "667 0 R"
+      },
+      {
+        "index": 19,
+        "name": "Road Shields",
+        "intent": [
+          "/View"
+        ],
+        "ref": "668 0 R"
+      },
+      {
+        "index": 20,
+        "name": "Structures",
+        "intent": [
+          "/View"
+        ],
+        "ref": "669 0 R"
+      },
+      {
+        "index": 21,
+        "name": "Recreation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "670 0 R"
+      },
+      {
+        "index": 22,
+        "name": "Public Services",
+        "intent": [
+          "/View"
+        ],
+        "ref": "671 0 R"
+      },
+      {
+        "index": 23,
+        "name": "Emergency Services",
+        "intent": [
+          "/View"
+        ],
+        "ref": "672 0 R"
+      },
+      {
+        "index": 24,
+        "name": "Geographic Names",
+        "intent": [
+          "/View"
+        ],
+        "ref": "673 0 R"
+      },
+      {
+        "index": 25,
+        "name": "Populated Places",
+        "intent": [
+          "/View"
+        ],
+        "ref": "674 0 R"
+      },
+      {
+        "index": 26,
+        "name": "Natural Features",
+        "intent": [
+          "/View"
+        ],
+        "ref": "675 0 R"
+      },
+      {
+        "index": 27,
+        "name": "Projection and Grids",
+        "intent": [
+          "/View"
+        ],
+        "ref": "676 0 R"
+      }
+    ],
+    "colors": {},
+    "fonts": {},
+    "geospatial": {
+      "hasViewport": false,
+      "hasLGIDict": false,
+      "hasMeasure": false,
+      "isGeoPDF": false
+    },
+    "structure": {
+      "pageCount": 1,
+      "pageSize": {
+        "width": 3312,
+        "height": 2160
+      }
+    }
+  },
+  {
+    "filename": "VT_Essex_Junction_20240417_TM_geo.pdf",
+    "filepath": "/Users/mgilbert/Code/gellyscape/samples/VT_Essex_Junction_20240417_TM_geo.pdf",
+    "fileSize": 48414742,
+    "metadata": {
+      "CreationDate": "D:20240417160740Z",
+      "Creator": "Esri ArcSOC 10.8.1.14362",
+      "ModDate": "D:20251124034716Z",
+      "Title": "Essex Junction",
+      "Producer": "pdf-lib (https://github.com/Hopding/pdf-lib)"
+    },
+    "layers": [
+      {
+        "index": 0,
+        "name": "Labels",
+        "intent": [],
+        "ref": "229 0 R"
+      },
+      {
+        "index": 1,
+        "name": "Map Collar",
+        "intent": [
+          "/View"
+        ],
+        "ref": "230 0 R"
+      },
+      {
+        "index": 2,
+        "name": "Map Elements",
+        "intent": [
+          "/View"
+        ],
+        "ref": "231 0 R"
+      },
+      {
+        "index": 3,
+        "name": "Map Frame",
+        "intent": [
+          "/View"
+        ],
+        "ref": "232 0 R"
+      },
+      {
+        "index": 4,
+        "name": "Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "233 0 R"
+      },
+      {
+        "index": 5,
+        "name": "Jurisdictional Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "234 0 R"
+      },
+      {
+        "index": 6,
+        "name": "County or Equivalent",
+        "intent": [
+          "/View"
+        ],
+        "ref": "235 0 R"
+      },
+      {
+        "index": 7,
+        "name": "State or Territory",
+        "intent": [
+          "/View"
+        ],
+        "ref": "236 0 R"
+      },
+      {
+        "index": 8,
+        "name": "Woodland",
+        "intent": [
+          "/View"
+        ],
+        "ref": "237 0 R"
+      },
+      {
+        "index": 9,
+        "name": "Terrain",
+        "intent": [
+          "/View"
+        ],
+        "ref": "238 0 R"
+      },
+      {
+        "index": 10,
+        "name": "Shaded Relief",
+        "intent": [
+          "/View"
+        ],
+        "ref": "239 0 R"
+      },
+      {
+        "index": 11,
+        "name": "Contours",
+        "intent": [
+          "/View"
+        ],
+        "ref": "240 0 R"
+      },
+      {
+        "index": 12,
+        "name": "Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "241 0 R"
+      },
+      {
+        "index": 13,
+        "name": "Wetlands",
+        "intent": [
+          "/View"
+        ],
+        "ref": "242 0 R"
+      },
+      {
+        "index": 14,
+        "name": "Transportation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "243 0 R"
+      },
+      {
+        "index": 15,
+        "name": "Airports",
+        "intent": [
+          "/View"
+        ],
+        "ref": "244 0 R"
+      },
+      {
+        "index": 16,
+        "name": "Railroads",
+        "intent": [
+          "/View"
+        ],
+        "ref": "245 0 R"
+      },
+      {
+        "index": 17,
+        "name": "Trails",
+        "intent": [
+          "/View"
+        ],
+        "ref": "246 0 R"
+      },
+      {
+        "index": 18,
+        "name": "Road Features",
+        "intent": [
+          "/View"
+        ],
+        "ref": "247 0 R"
+      },
+      {
+        "index": 19,
+        "name": "Road Names and Shields",
+        "intent": [
+          "/View"
+        ],
+        "ref": "248 0 R"
+      },
+      {
+        "index": 20,
+        "name": "Structures",
+        "intent": [
+          "/View"
+        ],
+        "ref": "249 0 R"
+      },
+      {
+        "index": 21,
+        "name": "Geographic Names",
+        "intent": [
+          "/View"
+        ],
+        "ref": "250 0 R"
+      },
+      {
+        "index": 22,
+        "name": "Projection and Grids",
+        "intent": [
+          "/View"
+        ],
+        "ref": "251 0 R"
+      },
+      {
+        "index": 23,
+        "name": "Images",
+        "intent": [
+          "/View"
+        ],
+        "ref": "252 0 R"
+      },
+      {
+        "index": 24,
+        "name": "Orthoimage",
+        "intent": [
+          "/View"
+        ],
+        "ref": "253 0 R"
+      },
+      {
+        "index": 25,
+        "name": "Barcode",
+        "intent": [
+          "/View"
+        ],
+        "ref": "254 0 R"
+      }
+    ],
+    "colors": {
+      "#a8d483-fill": {
+        "hex": "#a8d483",
+        "rgb": [
+          0.659,
+          0.831,
+          0.514
+        ],
+        "rgb255": [
+          168,
+          212,
+          131
+        ],
+        "type": "fill",
+        "count": 317
+      },
+      "#aecbf8-fill": {
+        "hex": "#aecbf8",
+        "rgb": [
+          0.682,
+          0.796,
+          0.973
+        ],
+        "rgb255": [
+          174,
+          203,
+          248
+        ],
+        "type": "fill",
+        "count": 185
+      },
+      "#89ace0-stroke": {
+        "hex": "#89ace0",
+        "rgb": [
+          0.537,
+          0.675,
+          0.878
+        ],
+        "rgb255": [
+          137,
+          172,
+          224
+        ],
+        "type": "stroke",
+        "count": 199
+      },
+      "#73b2ff-fill": {
+        "hex": "#73b2ff",
+        "rgb": [
+          0.451,
+          0.698,
+          1
+        ],
+        "rgb255": [
+          115,
+          178,
+          255
+        ],
+        "type": "fill",
+        "count": 657
+      },
+      "#5c8944-fill": {
+        "hex": "#5c8944",
+        "rgb": [
+          0.361,
+          0.537,
+          0.267
+        ],
+        "rgb255": [
+          92,
+          137,
+          68
+        ],
+        "type": "fill",
+        "count": 743
+      },
+      "#b38659-stroke": {
+        "hex": "#b38659",
+        "rgb": [
+          0.702,
+          0.525,
+          0.349
+        ],
+        "rgb255": [
+          179,
+          134,
+          89
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#a67442-stroke": {
+        "hex": "#a67442",
+        "rgb": [
+          0.651,
+          0.455,
+          0.259
+        ],
+        "rgb255": [
+          166,
+          116,
+          66
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#915828-stroke": {
+        "hex": "#915828",
+        "rgb": [
+          0.569,
+          0.345,
+          0.157
+        ],
+        "rgb255": [
+          145,
+          88,
+          40
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#050606-fill": {
+        "hex": "#050606",
+        "rgb": [
+          0.02,
+          0.024,
+          0.024
+        ],
+        "rgb255": [
+          5,
+          6,
+          6
+        ],
+        "type": "fill",
+        "count": 2
+      },
+      "#e89b24-fill": {
+        "hex": "#e89b24",
+        "rgb": [
+          0.91,
+          0.608,
+          0.141
+        ],
+        "rgb255": [
+          232,
+          155,
+          36
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#ffffff-fill": {
+        "hex": "#ffffff",
+        "rgb": [
+          1,
+          1,
+          1
+        ],
+        "rgb255": [
+          255,
+          255,
+          255
+        ],
+        "type": "fill",
+        "count": 62
+      },
+      "#000000-stroke": {
+        "hex": "#000000",
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "rgb255": [
+          0,
+          0,
+          0
+        ],
+        "type": "stroke",
+        "count": 14
+      },
+      "#e1e1e1-stroke": {
+        "hex": "#e1e1e1",
+        "rgb": [
+          0.882,
+          0.882,
+          0.882
+        ],
+        "rgb255": [
+          225,
+          225,
+          225
+        ],
+        "type": "stroke",
+        "count": 329
+      },
+      "#e64c00-stroke": {
+        "hex": "#e64c00",
+        "rgb": [
+          0.902,
+          0.298,
+          0
+        ],
+        "rgb255": [
+          230,
+          76,
+          0
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#9b9b9b-stroke": {
+        "hex": "#9b9b9b",
+        "rgb": [
+          0.608,
+          0.608,
+          0.608
+        ],
+        "rgb255": [
+          155,
+          155,
+          155
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#ffffff-stroke": {
+        "hex": "#ffffff",
+        "rgb": [
+          1,
+          1,
+          1
+        ],
+        "rgb255": [
+          255,
+          255,
+          255
+        ],
+        "type": "stroke",
+        "count": 8
+      },
+      "#6e6f6e-stroke": {
+        "hex": "#6e6f6e",
+        "rgb": [
+          0.431,
+          0.435,
+          0.431
+        ],
+        "rgb255": [
+          110,
+          111,
+          110
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#c96767-stroke": {
+        "hex": "#c96767",
+        "rgb": [
+          0.788,
+          0.404,
+          0.404
+        ],
+        "rgb255": [
+          201,
+          103,
+          103
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#822929-stroke": {
+        "hex": "#822929",
+        "rgb": [
+          0.51,
+          0.161,
+          0.161
+        ],
+        "rgb255": [
+          130,
+          41,
+          41
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#af4b4c-stroke": {
+        "hex": "#af4b4c",
+        "rgb": [
+          0.686,
+          0.294,
+          0.298
+        ],
+        "rgb255": [
+          175,
+          75,
+          76
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#000000-fill": {
+        "hex": "#000000",
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "rgb255": [
+          0,
+          0,
+          0
+        ],
+        "type": "fill",
+        "count": 82
+      },
+      "#343434-fill": {
+        "hex": "#343434",
+        "rgb": [
+          0.204,
+          0.204,
+          0.204
+        ],
+        "rgb255": [
+          52,
+          52,
+          52
+        ],
+        "type": "fill",
+        "count": 3
+      },
+      "#4169e1-fill": {
+        "hex": "#4169e1",
+        "rgb": [
+          0.255,
+          0.412,
+          0.882
+        ],
+        "rgb255": [
+          65,
+          105,
+          225
+        ],
+        "type": "fill",
+        "count": 4
+      },
+      "#4169e1-stroke": {
+        "hex": "#4169e1",
+        "rgb": [
+          0.255,
+          0.412,
+          0.882
+        ],
+        "rgb255": [
+          65,
+          105,
+          225
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#6e6e6e-stroke": {
+        "hex": "#6e6e6e",
+        "rgb": [
+          0.431,
+          0.431,
+          0.431
+        ],
+        "rgb255": [
+          110,
+          110,
+          110
+        ],
+        "type": "stroke",
+        "count": 5
+      },
+      "#a83800-fill": {
+        "hex": "#a83800",
+        "rgb": [
+          0.659,
+          0.22,
+          0
+        ],
+        "rgb255": [
+          168,
+          56,
+          0
+        ],
+        "type": "fill",
+        "count": 5
+      },
+      "#211e1f-fill": {
+        "hex": "#211e1f",
+        "rgb": [
+          0.129,
+          0.118,
+          0.122
+        ],
+        "rgb255": [
+          33,
+          30,
+          31
+        ],
+        "type": "fill",
+        "count": 3
+      },
+      "#dc143c-fill": {
+        "hex": "#dc143c",
+        "rgb": [
+          0.863,
+          0.078,
+          0.235
+        ],
+        "rgb255": [
+          220,
+          20,
+          60
+        ],
+        "type": "fill",
+        "count": 2
+      },
+      "#dc143c-stroke": {
+        "hex": "#dc143c",
+        "rgb": [
+          0.863,
+          0.078,
+          0.235
+        ],
+        "rgb255": [
+          220,
+          20,
+          60
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#f0f0f0-stroke": {
+        "hex": "#f0f0f0",
+        "rgb": [
+          0.941,
+          0.941,
+          0.941
+        ],
+        "rgb255": [
+          240,
+          240,
+          240
+        ],
+        "type": "stroke",
+        "count": 17
+      },
+      "#834225-fill": {
+        "hex": "#834225",
+        "rgb": [
+          0.514,
+          0.259,
+          0.145
+        ],
+        "rgb255": [
+          131,
+          66,
+          37
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#b05221-fill": {
+        "hex": "#b05221",
+        "rgb": [
+          0.69,
+          0.322,
+          0.129
+        ],
+        "rgb255": [
+          176,
+          82,
+          33
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#ff0000-fill": {
+        "hex": "#ff0000",
+        "rgb": [
+          1,
+          0,
+          0
+        ],
+        "rgb255": [
+          255,
+          0,
+          0
+        ],
+        "type": "fill",
+        "count": 6
+      },
+      "#0000ff-fill": {
+        "hex": "#0000ff",
+        "rgb": [
+          0,
+          0,
+          1
+        ],
+        "rgb255": [
+          0,
+          0,
+          255
+        ],
+        "type": "fill",
+        "count": 5
+      },
+      "#6589bf-fill": {
+        "hex": "#6589bf",
+        "rgb": [
+          0.396,
+          0.537,
+          0.749
+        ],
+        "rgb255": [
+          101,
+          137,
+          191
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#ffaa00-stroke": {
+        "hex": "#ffaa00",
+        "rgb": [
+          1,
+          0.667,
+          0
+        ],
+        "rgb255": [
+          255,
+          170,
+          0
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#ff0000-stroke": {
+        "hex": "#ff0000",
+        "rgb": [
+          1,
+          0,
+          0
+        ],
+        "rgb255": [
+          255,
+          0,
+          0
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#e60000-stroke": {
+        "hex": "#e60000",
+        "rgb": [
+          0.902,
+          0,
+          0
+        ],
+        "rgb255": [
+          230,
+          0,
+          0
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#7d1414-stroke": {
+        "hex": "#7d1414",
+        "rgb": [
+          0.49,
+          0.078,
+          0.078
+        ],
+        "rgb255": [
+          125,
+          20,
+          20
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#b23c3c-stroke": {
+        "hex": "#b23c3c",
+        "rgb": [
+          0.698,
+          0.235,
+          0.235
+        ],
+        "rgb255": [
+          178,
+          60,
+          60
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#686868-stroke": {
+        "hex": "#686868",
+        "rgb": [
+          0.408,
+          0.408,
+          0.408
+        ],
+        "rgb255": [
+          104,
+          104,
+          104
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#c65050-stroke": {
+        "hex": "#c65050",
+        "rgb": [
+          0.776,
+          0.314,
+          0.314
+        ],
+        "rgb255": [
+          198,
+          80,
+          80
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#9c9c9c-stroke": {
+        "hex": "#9c9c9c",
+        "rgb": [
+          0.612,
+          0.612,
+          0.612
+        ],
+        "rgb255": [
+          156,
+          156,
+          156
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#0017c2-fill": {
+        "hex": "#0017c2",
+        "rgb": [
+          0,
+          0.09,
+          0.761
+        ],
+        "rgb255": [
+          0,
+          23,
+          194
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#cc0017-fill": {
+        "hex": "#cc0017",
+        "rgb": [
+          0.8,
+          0,
+          0.09
+        ],
+        "rgb255": [
+          204,
+          0,
+          23
+        ],
+        "type": "fill",
+        "count": 1
+      }
+    },
+    "fonts": {
+      "/FTODWQ+Georgia-/Type0": {
+        "name": "/C2_0",
+        "baseFont": "/FTODWQ+Georgia",
+        "subtype": "/Type0",
+        "encoding": "33 0 R",
+        "hasToUnicode": true
+      },
+      "/JBAXGI+Webdings-/Type0": {
+        "name": "/C2_1",
+        "baseFont": "/JBAXGI+Webdings",
+        "subtype": "/Type0",
+        "encoding": "37 0 R",
+        "hasToUnicode": true
+      },
+      "/WKQKKR+Arial-Black-/Type0": {
+        "name": "/C2_2",
+        "baseFont": "/WKQKKR+Arial-Black",
+        "subtype": "/Type0",
+        "encoding": "41 0 R",
+        "hasToUnicode": true
+      },
+      "/JYLYUG+Free3of9Extended-/Type1": {
+        "name": "/T1_0",
+        "baseFont": "/JYLYUG+Free3of9Extended",
+        "subtype": "/Type1",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/EUYQVE+ESRIDefaultMarker-/TrueType": {
+        "name": "/TT0",
+        "baseFont": "/EUYQVE+ESRIDefaultMarker",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/MCNSCR+ESRICaves3-/TrueType": {
+        "name": "/TT1",
+        "baseFont": "/MCNSCR+ESRICaves3",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/PJJYWI+TrebuchetMS-/TrueType": {
+        "name": "/TT10",
+        "baseFont": "/PJJYWI+TrebuchetMS",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/DDUBOU+TrebuchetMS-Bold-/TrueType": {
+        "name": "/TT11",
+        "baseFont": "/DDUBOU+TrebuchetMS-Bold",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/SIBWJD+TimesNewRomanPSMT-/TrueType": {
+        "name": "/TT12",
+        "baseFont": "/SIBWJD+TimesNewRomanPSMT",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/RAPQNR+PLTS3-/TrueType": {
+        "name": "/TT13",
+        "baseFont": "/RAPQNR+PLTS3",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/YCIKYH+ESRIShields-/TrueType": {
+        "name": "/TT14",
+        "baseFont": "/YCIKYH+ESRIShields",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/VIJYHJ+ESRIBusiness-/TrueType": {
+        "name": "/TT2",
+        "baseFont": "/VIJYHJ+ESRIBusiness",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/WLCAON+SegoeUI-Italic-/TrueType": {
+        "name": "/TT3",
+        "baseFont": "/WLCAON+SegoeUI-Italic",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/GGOQAW+SegoeUI-/TrueType": {
+        "name": "/TT4",
+        "baseFont": "/GGOQAW+SegoeUI",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/BFLPGN+CharisSIL-Italic-/TrueType": {
+        "name": "/TT5",
+        "baseFont": "/BFLPGN+CharisSIL-Italic",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/STMWKG+CharisSIL-Bold-/TrueType": {
+        "name": "/TT6",
+        "baseFont": "/STMWKG+CharisSIL-Bold",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/YNOPCA+Arial-BoldMT-/TrueType": {
+        "name": "/TT8",
+        "baseFont": "/YNOPCA+Arial-BoldMT",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/GVPGWP+ArialMT-/TrueType": {
+        "name": "/TT9",
+        "baseFont": "/GVPGWP+ArialMT",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      }
+    },
+    "geospatial": {
+      "hasViewport": false,
+      "hasLGIDict": false,
+      "hasMeasure": false,
+      "isGeoPDF": false
+    },
+    "structure": {
+      "pageCount": 1,
+      "pageSize": {
+        "width": 1728,
+        "height": 2088
+      }
+    }
+  },
+  {
+    "filename": "NY_Niagara_Falls_20230524_TM_geo.pdf",
+    "filepath": "/Users/mgilbert/Code/gellyscape/samples/NY_Niagara_Falls_20230524_TM_geo.pdf",
+    "fileSize": 29555778,
+    "metadata": {
+      "CreationDate": "D:20230524214542Z",
+      "Creator": "Esri ArcSOC 10.8.1.14362",
+      "ModDate": "D:20251124034717Z",
+      "Title": "Niagara Falls",
+      "Producer": "pdf-lib (https://github.com/Hopding/pdf-lib)"
+    },
+    "layers": [
+      {
+        "index": 0,
+        "name": "Labels",
+        "intent": [],
+        "ref": "242 0 R"
+      },
+      {
+        "index": 1,
+        "name": "Map Collar",
+        "intent": [
+          "/View"
+        ],
+        "ref": "243 0 R"
+      },
+      {
+        "index": 2,
+        "name": "Map Elements",
+        "intent": [
+          "/View"
+        ],
+        "ref": "244 0 R"
+      },
+      {
+        "index": 3,
+        "name": "Map Frame",
+        "intent": [
+          "/View"
+        ],
+        "ref": "245 0 R"
+      },
+      {
+        "index": 4,
+        "name": "Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "246 0 R"
+      },
+      {
+        "index": 5,
+        "name": "Jurisdictional Boundaries",
+        "intent": [
+          "/View"
+        ],
+        "ref": "247 0 R"
+      },
+      {
+        "index": 6,
+        "name": "County or Equivalent",
+        "intent": [
+          "/View"
+        ],
+        "ref": "248 0 R"
+      },
+      {
+        "index": 7,
+        "name": "State or Territory",
+        "intent": [
+          "/View"
+        ],
+        "ref": "249 0 R"
+      },
+      {
+        "index": 8,
+        "name": "International",
+        "intent": [
+          "/View"
+        ],
+        "ref": "250 0 R"
+      },
+      {
+        "index": 9,
+        "name": "Woodland",
+        "intent": [
+          "/View"
+        ],
+        "ref": "251 0 R"
+      },
+      {
+        "index": 10,
+        "name": "Terrain",
+        "intent": [
+          "/View"
+        ],
+        "ref": "252 0 R"
+      },
+      {
+        "index": 11,
+        "name": "Shaded Relief",
+        "intent": [
+          "/View"
+        ],
+        "ref": "253 0 R"
+      },
+      {
+        "index": 12,
+        "name": "Contours",
+        "intent": [
+          "/View"
+        ],
+        "ref": "254 0 R"
+      },
+      {
+        "index": 13,
+        "name": "Hydrography",
+        "intent": [
+          "/View"
+        ],
+        "ref": "255 0 R"
+      },
+      {
+        "index": 14,
+        "name": "Wetlands",
+        "intent": [
+          "/View"
+        ],
+        "ref": "256 0 R"
+      },
+      {
+        "index": 15,
+        "name": "Transportation",
+        "intent": [
+          "/View"
+        ],
+        "ref": "257 0 R"
+      },
+      {
+        "index": 16,
+        "name": "Airports",
+        "intent": [
+          "/View"
+        ],
+        "ref": "258 0 R"
+      },
+      {
+        "index": 17,
+        "name": "Railroads",
+        "intent": [
+          "/View"
+        ],
+        "ref": "259 0 R"
+      },
+      {
+        "index": 18,
+        "name": "Road Features",
+        "intent": [
+          "/View"
+        ],
+        "ref": "260 0 R"
+      },
+      {
+        "index": 19,
+        "name": "Road Names and Shields",
+        "intent": [
+          "/View"
+        ],
+        "ref": "261 0 R"
+      },
+      {
+        "index": 20,
+        "name": "Structures",
+        "intent": [
+          "/View"
+        ],
+        "ref": "262 0 R"
+      },
+      {
+        "index": 21,
+        "name": "Geographic Names",
+        "intent": [
+          "/View"
+        ],
+        "ref": "263 0 R"
+      },
+      {
+        "index": 22,
+        "name": "Projection and Grids",
+        "intent": [
+          "/View"
+        ],
+        "ref": "264 0 R"
+      },
+      {
+        "index": 23,
+        "name": "Images",
+        "intent": [
+          "/View"
+        ],
+        "ref": "265 0 R"
+      },
+      {
+        "index": 24,
+        "name": "Orthoimage",
+        "intent": [
+          "/View"
+        ],
+        "ref": "266 0 R"
+      },
+      {
+        "index": 25,
+        "name": "Barcode",
+        "intent": [
+          "/View"
+        ],
+        "ref": "267 0 R"
+      }
+    ],
+    "colors": {
+      "#a8d483-fill": {
+        "hex": "#a8d483",
+        "rgb": [
+          0.659,
+          0.831,
+          0.514
+        ],
+        "rgb255": [
+          168,
+          212,
+          131
+        ],
+        "type": "fill",
+        "count": 92
+      },
+      "#aecbf8-fill": {
+        "hex": "#aecbf8",
+        "rgb": [
+          0.682,
+          0.796,
+          0.973
+        ],
+        "rgb255": [
+          174,
+          203,
+          248
+        ],
+        "type": "fill",
+        "count": 98
+      },
+      "#89ace0-stroke": {
+        "hex": "#89ace0",
+        "rgb": [
+          0.537,
+          0.675,
+          0.878
+        ],
+        "rgb255": [
+          137,
+          172,
+          224
+        ],
+        "type": "stroke",
+        "count": 130
+      },
+      "#5c8944-fill": {
+        "hex": "#5c8944",
+        "rgb": [
+          0.361,
+          0.537,
+          0.267
+        ],
+        "rgb255": [
+          92,
+          137,
+          68
+        ],
+        "type": "fill",
+        "count": 400
+      },
+      "#73b2ff-fill": {
+        "hex": "#73b2ff",
+        "rgb": [
+          0.451,
+          0.698,
+          1
+        ],
+        "rgb255": [
+          115,
+          178,
+          255
+        ],
+        "type": "fill",
+        "count": 79
+      },
+      "#89ace0-fill": {
+        "hex": "#89ace0",
+        "rgb": [
+          0.537,
+          0.675,
+          0.878
+        ],
+        "rgb255": [
+          137,
+          172,
+          224
+        ],
+        "type": "fill",
+        "count": 12
+      },
+      "#9c9c9c-fill": {
+        "hex": "#9c9c9c",
+        "rgb": [
+          0.612,
+          0.612,
+          0.612
+        ],
+        "rgb255": [
+          156,
+          156,
+          156
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#343434-stroke": {
+        "hex": "#343434",
+        "rgb": [
+          0.204,
+          0.204,
+          0.204
+        ],
+        "rgb255": [
+          52,
+          52,
+          52
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#b38659-stroke": {
+        "hex": "#b38659",
+        "rgb": [
+          0.702,
+          0.525,
+          0.349
+        ],
+        "rgb255": [
+          179,
+          134,
+          89
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#915828-stroke": {
+        "hex": "#915828",
+        "rgb": [
+          0.569,
+          0.345,
+          0.157
+        ],
+        "rgb255": [
+          145,
+          88,
+          40
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#4e4e4e-fill": {
+        "hex": "#4e4e4e",
+        "rgb": [
+          0.306,
+          0.306,
+          0.306
+        ],
+        "rgb255": [
+          78,
+          78,
+          78
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#050606-fill": {
+        "hex": "#050606",
+        "rgb": [
+          0.02,
+          0.024,
+          0.024
+        ],
+        "rgb255": [
+          5,
+          6,
+          6
+        ],
+        "type": "fill",
+        "count": 2
+      },
+      "#e89b24-fill": {
+        "hex": "#e89b24",
+        "rgb": [
+          0.91,
+          0.608,
+          0.141
+        ],
+        "rgb255": [
+          232,
+          155,
+          36
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#ffffff-fill": {
+        "hex": "#ffffff",
+        "rgb": [
+          1,
+          1,
+          1
+        ],
+        "rgb255": [
+          255,
+          255,
+          255
+        ],
+        "type": "fill",
+        "count": 37
+      },
+      "#000000-stroke": {
+        "hex": "#000000",
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "rgb255": [
+          0,
+          0,
+          0
+        ],
+        "type": "stroke",
+        "count": 18
+      },
+      "#9b9b9b-stroke": {
+        "hex": "#9b9b9b",
+        "rgb": [
+          0.608,
+          0.608,
+          0.608
+        ],
+        "rgb255": [
+          155,
+          155,
+          155
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#ffffff-stroke": {
+        "hex": "#ffffff",
+        "rgb": [
+          1,
+          1,
+          1
+        ],
+        "rgb255": [
+          255,
+          255,
+          255
+        ],
+        "type": "stroke",
+        "count": 7
+      },
+      "#6e6f6e-stroke": {
+        "hex": "#6e6f6e",
+        "rgb": [
+          0.431,
+          0.435,
+          0.431
+        ],
+        "rgb255": [
+          110,
+          111,
+          110
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#c96767-stroke": {
+        "hex": "#c96767",
+        "rgb": [
+          0.788,
+          0.404,
+          0.404
+        ],
+        "rgb255": [
+          201,
+          103,
+          103
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#822929-stroke": {
+        "hex": "#822929",
+        "rgb": [
+          0.51,
+          0.161,
+          0.161
+        ],
+        "rgb255": [
+          130,
+          41,
+          41
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#af4b4c-stroke": {
+        "hex": "#af4b4c",
+        "rgb": [
+          0.686,
+          0.294,
+          0.298
+        ],
+        "rgb255": [
+          175,
+          75,
+          76
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#f0e187-stroke": {
+        "hex": "#f0e187",
+        "rgb": [
+          0.941,
+          0.882,
+          0.529
+        ],
+        "rgb255": [
+          240,
+          225,
+          135
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#343434-fill": {
+        "hex": "#343434",
+        "rgb": [
+          0.204,
+          0.204,
+          0.204
+        ],
+        "rgb255": [
+          52,
+          52,
+          52
+        ],
+        "type": "fill",
+        "count": 3
+      },
+      "#000000-fill": {
+        "hex": "#000000",
+        "rgb": [
+          0,
+          0,
+          0
+        ],
+        "rgb255": [
+          0,
+          0,
+          0
+        ],
+        "type": "fill",
+        "count": 92
+      },
+      "#4169e1-fill": {
+        "hex": "#4169e1",
+        "rgb": [
+          0.255,
+          0.412,
+          0.882
+        ],
+        "rgb255": [
+          65,
+          105,
+          225
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#4169e1-stroke": {
+        "hex": "#4169e1",
+        "rgb": [
+          0.255,
+          0.412,
+          0.882
+        ],
+        "rgb255": [
+          65,
+          105,
+          225
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#6e6e6e-stroke": {
+        "hex": "#6e6e6e",
+        "rgb": [
+          0.431,
+          0.431,
+          0.431
+        ],
+        "rgb255": [
+          110,
+          110,
+          110
+        ],
+        "type": "stroke",
+        "count": 3
+      },
+      "#a83800-fill": {
+        "hex": "#a83800",
+        "rgb": [
+          0.659,
+          0.22,
+          0
+        ],
+        "rgb255": [
+          168,
+          56,
+          0
+        ],
+        "type": "fill",
+        "count": 4
+      },
+      "#732600-fill": {
+        "hex": "#732600",
+        "rgb": [
+          0.451,
+          0.149,
+          0
+        ],
+        "rgb255": [
+          115,
+          38,
+          0
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#dc143c-fill": {
+        "hex": "#dc143c",
+        "rgb": [
+          0.863,
+          0.078,
+          0.235
+        ],
+        "rgb255": [
+          220,
+          20,
+          60
+        ],
+        "type": "fill",
+        "count": 5
+      },
+      "#dc143c-stroke": {
+        "hex": "#dc143c",
+        "rgb": [
+          0.863,
+          0.078,
+          0.235
+        ],
+        "rgb255": [
+          220,
+          20,
+          60
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#0c479d-fill": {
+        "hex": "#0c479d",
+        "rgb": [
+          0.047,
+          0.278,
+          0.616
+        ],
+        "rgb255": [
+          12,
+          71,
+          157
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#0c479d-stroke": {
+        "hex": "#0c479d",
+        "rgb": [
+          0.047,
+          0.278,
+          0.616
+        ],
+        "rgb255": [
+          12,
+          71,
+          157
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#f0f0f0-stroke": {
+        "hex": "#f0f0f0",
+        "rgb": [
+          0.941,
+          0.941,
+          0.941
+        ],
+        "rgb255": [
+          240,
+          240,
+          240
+        ],
+        "type": "stroke",
+        "count": 48
+      },
+      "#834225-fill": {
+        "hex": "#834225",
+        "rgb": [
+          0.514,
+          0.259,
+          0.145
+        ],
+        "rgb255": [
+          131,
+          66,
+          37
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#ff0000-fill": {
+        "hex": "#ff0000",
+        "rgb": [
+          1,
+          0,
+          0
+        ],
+        "rgb255": [
+          255,
+          0,
+          0
+        ],
+        "type": "fill",
+        "count": 2
+      },
+      "#0000ff-fill": {
+        "hex": "#0000ff",
+        "rgb": [
+          0,
+          0,
+          1
+        ],
+        "rgb255": [
+          0,
+          0,
+          255
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#6589bf-fill": {
+        "hex": "#6589bf",
+        "rgb": [
+          0.396,
+          0.537,
+          0.749
+        ],
+        "rgb255": [
+          101,
+          137,
+          191
+        ],
+        "type": "fill",
+        "count": 2
+      },
+      "#ffaa00-stroke": {
+        "hex": "#ffaa00",
+        "rgb": [
+          1,
+          0.667,
+          0
+        ],
+        "rgb255": [
+          255,
+          170,
+          0
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#ff0000-stroke": {
+        "hex": "#ff0000",
+        "rgb": [
+          1,
+          0,
+          0
+        ],
+        "rgb255": [
+          255,
+          0,
+          0
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#e60000-stroke": {
+        "hex": "#e60000",
+        "rgb": [
+          0.902,
+          0,
+          0
+        ],
+        "rgb255": [
+          230,
+          0,
+          0
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#7d1414-stroke": {
+        "hex": "#7d1414",
+        "rgb": [
+          0.49,
+          0.078,
+          0.078
+        ],
+        "rgb255": [
+          125,
+          20,
+          20
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#b23c3c-stroke": {
+        "hex": "#b23c3c",
+        "rgb": [
+          0.698,
+          0.235,
+          0.235
+        ],
+        "rgb255": [
+          178,
+          60,
+          60
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#686868-stroke": {
+        "hex": "#686868",
+        "rgb": [
+          0.408,
+          0.408,
+          0.408
+        ],
+        "rgb255": [
+          104,
+          104,
+          104
+        ],
+        "type": "stroke",
+        "count": 1
+      },
+      "#c65050-stroke": {
+        "hex": "#c65050",
+        "rgb": [
+          0.776,
+          0.314,
+          0.314
+        ],
+        "rgb255": [
+          198,
+          80,
+          80
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#9c9c9c-stroke": {
+        "hex": "#9c9c9c",
+        "rgb": [
+          0.612,
+          0.612,
+          0.612
+        ],
+        "rgb255": [
+          156,
+          156,
+          156
+        ],
+        "type": "stroke",
+        "count": 2
+      },
+      "#0017c2-fill": {
+        "hex": "#0017c2",
+        "rgb": [
+          0,
+          0.09,
+          0.761
+        ],
+        "rgb255": [
+          0,
+          23,
+          194
+        ],
+        "type": "fill",
+        "count": 1
+      },
+      "#cc0017-fill": {
+        "hex": "#cc0017",
+        "rgb": [
+          0.8,
+          0,
+          0.09
+        ],
+        "rgb255": [
+          204,
+          0,
+          23
+        ],
+        "type": "fill",
+        "count": 1
+      }
+    },
+    "fonts": {
+      "/WJKEUN+Georgia-/Type0": {
+        "name": "/C2_0",
+        "baseFont": "/WJKEUN+Georgia",
+        "subtype": "/Type0",
+        "encoding": "33 0 R",
+        "hasToUnicode": true
+      },
+      "/HLAWCT+Webdings-/Type0": {
+        "name": "/C2_1",
+        "baseFont": "/HLAWCT+Webdings",
+        "subtype": "/Type0",
+        "encoding": "37 0 R",
+        "hasToUnicode": true
+      },
+      "/OYXBWQ+Wingdings-Regular-/Type0": {
+        "name": "/C2_2",
+        "baseFont": "/OYXBWQ+Wingdings-Regular",
+        "subtype": "/Type0",
+        "encoding": "41 0 R",
+        "hasToUnicode": true
+      },
+      "/UQSEDW+ArialMT-/Type0": {
+        "name": "/C2_3",
+        "baseFont": "/UQSEDW+ArialMT",
+        "subtype": "/Type0",
+        "encoding": "45 0 R",
+        "hasToUnicode": true
+      },
+      "/DQRFHX+Arial-Black-/Type0": {
+        "name": "/C2_4",
+        "baseFont": "/DQRFHX+Arial-Black",
+        "subtype": "/Type0",
+        "encoding": "49 0 R",
+        "hasToUnicode": true
+      },
+      "/OOARRI+ArialMT-/Type0": {
+        "name": "/C2_5",
+        "baseFont": "/OOARRI+ArialMT",
+        "subtype": "/Type0",
+        "encoding": "51 0 R",
+        "hasToUnicode": true
+      },
+      "/EIHVVC+Free3of9Extended-/Type1": {
+        "name": "/T1_0",
+        "baseFont": "/EIHVVC+Free3of9Extended",
+        "subtype": "/Type1",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/YGMWCR+ESRICaves3-/TrueType": {
+        "name": "/TT0",
+        "baseFont": "/YGMWCR+ESRICaves3",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/UXKSGJ+ESRIDefaultMarker-/TrueType": {
+        "name": "/TT1",
+        "baseFont": "/UXKSGJ+ESRIDefaultMarker",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/IHKTCG+TrebuchetMS-Bold-/TrueType": {
+        "name": "/TT10",
+        "baseFont": "/IHKTCG+TrebuchetMS-Bold",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/NYAEPD+TimesNewRomanPSMT-/TrueType": {
+        "name": "/TT11",
+        "baseFont": "/NYAEPD+TimesNewRomanPSMT",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/WQGMWX+PLTS3-/TrueType": {
+        "name": "/TT12",
+        "baseFont": "/WQGMWX+PLTS3",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/HYPUME+ESRIShields-/TrueType": {
+        "name": "/TT13",
+        "baseFont": "/HYPUME+ESRIShields",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/MGOYAT+ESRIBusiness-/TrueType": {
+        "name": "/TT2",
+        "baseFont": "/MGOYAT+ESRIBusiness",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/MAJIHR+SegoeUI-Italic-/TrueType": {
+        "name": "/TT3",
+        "baseFont": "/MAJIHR+SegoeUI-Italic",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/NRYWDO+SegoeUI-/TrueType": {
+        "name": "/TT4",
+        "baseFont": "/NRYWDO+SegoeUI",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/HMBKUS+CharisSIL-Bold-/TrueType": {
+        "name": "/TT5",
+        "baseFont": "/HMBKUS+CharisSIL-Bold",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/BYRBEC+CharisSIL-Italic-/TrueType": {
+        "name": "/TT6",
+        "baseFont": "/BYRBEC+CharisSIL-Italic",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/VVFHVR+TrebuchetMS-/TrueType": {
+        "name": "/TT7",
+        "baseFont": "/VVFHVR+TrebuchetMS",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      },
+      "/LUQYWX+Arial-BoldMT-/TrueType": {
+        "name": "/TT8",
+        "baseFont": "/LUQYWX+Arial-BoldMT",
+        "subtype": "/TrueType",
+        "encoding": "/WinAnsiEncoding",
+        "hasToUnicode": false
+      }
+    },
+    "geospatial": {
+      "hasViewport": false,
+      "hasLGIDict": false,
+      "hasMeasure": false,
+      "isGeoPDF": false
+    },
+    "structure": {
+      "pageCount": 1,
+      "pageSize": {
+        "width": 1728,
+        "height": 2088
+      }
+    }
+  }
+]
