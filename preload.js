@@ -15,9 +15,6 @@ window.electronAPI = {
   generateSVG: (options) => ipcRenderer.invoke('svg:generate', options),
   exportSVG: (options) => ipcRenderer.invoke('svg:export', options),
 
-  // Legacy PDF processing (sends full data - deprecated)
-  processPDF: (filePath) => ipcRenderer.invoke('pdf:process', filePath),
-
   // Get debug info about layers and bounds
   getDebugInfo: () => ipcRenderer.invoke('pdf:getDebugInfo'),
 

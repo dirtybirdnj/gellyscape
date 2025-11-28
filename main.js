@@ -145,103 +145,38 @@ ipcMain.handle('dialog:openFile', async () => {
   return filePaths[0];
 });
 
-// Process PDF file
-ipcMain.handle('pdf:process', async (event, filePath) => {
-  try {
-    // Validate file extension
-    const fileExtension = path.extname(filePath).toLowerCase();
-    if (fileExtension !== '.pdf') {
-      return {
-        success: false,
-        error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported. Please select a PDF file to process.`
-      };
-    }
-
-    // Report initial progress
-    event.sender.send('pdf:progress', {
-      operation: 'Validating File',
-      detail: 'Reading PDF file...'
-    });
-
-    // Read the file
-    const fileBuffer = await fs.readFile(filePath);
-
-    // Verify PDF magic bytes (PDF files start with "%PDF-")
-    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
-    if (fileBuffer.length < pdfMagicBytes.length ||
-        !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
-      return {
-        success: false,
-        error: `File does not appear to be a valid PDF. The file may be corrupted or is not a PDF file.`
-      };
-    }
-
-    // Process the PDF
-    const processor = new PDFProcessor(fileBuffer);
-
-    // Set up progress callback to forward progress to renderer
-    processor.setProgressCallback((progress) => {
-      event.sender.send('pdf:progress', progress);
-    });
-
-    const result = await processor.process();
-
-    // Send completion progress
-    event.sender.send('pdf:progress', {
-      operation: 'Complete',
-      detail: 'Processing finished successfully!'
-    });
-
-    // Track this file in recent files
-    const pathCount = result.contentPaths?.paths?.length || 0;
-    await addRecentFile(filePath, {
-      ...result.metadata,
-      pathCount
-    });
-
-    return {
-      success: true,
-      data: result
-    };
-  } catch (error) {
-    console.error('Error processing PDF:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+// Helper: Validate PDF file and return buffer if valid
+async function validatePDFFile(filePath) {
+  const fileExtension = path.extname(filePath).toLowerCase();
+  if (fileExtension !== '.pdf') {
+    return { error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported.` };
   }
-});
 
-// Process PDF and keep paths in main process (lightweight version for renderer)
+  const fileBuffer = await fs.readFile(filePath);
+  const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
+  if (fileBuffer.length < pdfMagicBytes.length ||
+      !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
+    return { error: 'File does not appear to be a valid PDF.' };
+  }
+
+  return { buffer: fileBuffer };
+}
+
+// Process PDF and keep paths in main process
 // Only sends layer metadata to renderer, not the full path data
 ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
   try {
-    const fileExtension = path.extname(filePath).toLowerCase();
-    if (fileExtension !== '.pdf') {
-      return {
-        success: false,
-        error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported.`
-      };
-    }
-
     event.sender.send('pdf:progress', {
       operation: 'Loading',
       detail: 'Reading PDF file...'
     });
 
-    const fileBuffer = await fs.readFile(filePath);
-
-    // Verify PDF magic bytes
-    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
-    if (fileBuffer.length < pdfMagicBytes.length ||
-        !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
-      return {
-        success: false,
-        error: 'File does not appear to be a valid PDF.'
-      };
+    const validation = await validatePDFFile(filePath);
+    if (validation.error) {
+      return { success: false, error: validation.error };
     }
 
-    const processor = new PDFProcessor(fileBuffer);
+    const processor = new PDFProcessor(validation.buffer);
     processor.setProgressCallback((progress) => {
       event.sender.send('pdf:progress', progress);
     });
@@ -694,7 +629,6 @@ ipcMain.handle('file:showInFinder', async (event, filePath) => {
 // Show save dialog
 ipcMain.handle('dialog:save', async (event, options) => {
   try {
-    const { dialog } = require('electron');
     const result = await dialog.showSaveDialog({
       title: options.title || 'Save File',
       defaultPath: options.defaultPath,
@@ -710,15 +644,11 @@ ipcMain.handle('dialog:save', async (event, options) => {
 // Write file
 ipcMain.handle('file:write', async (event, { filePath, content }) => {
   try {
-    const fs = require('fs');
-    fs.writeFileSync(filePath, content, 'utf8');
+    await fs.writeFile(filePath, content, 'utf8');
     return { success: true };
   } catch (error) {
     console.error('Error writing file:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    return { success: false, error: error.message };
   }
 });
 
@@ -746,11 +676,6 @@ ipcMain.handle('vpype:crop', async (event, data) => {
         content: match[3]
       });
     }
-
-
-    // Extract SVG header (everything before first layer)
-    const headerMatch = svgContent.match(/([\s\S]*?)<g id="layer-/);
-    const svgHeader = headerMatch ? headerMatch[1] : '';
 
     // Extract viewBox for creating individual layer SVGs
     const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/);
