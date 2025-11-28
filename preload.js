@@ -53,5 +53,9 @@ window.electronAPI = {
   addRecentFile: (filePath, metadata) => ipcRenderer.invoke('files:addRecent', { filePath, metadata }),
 
   // Text extraction
-  extractText: (filePath) => ipcRenderer.invoke('pdf:extractText', filePath)
+  extractText: (filePath) => ipcRenderer.invoke('pdf:extractText', filePath),
+
+  // Path inspection
+  getLayerPaths: (layerName) => ipcRenderer.invoke('pdf:getLayerPaths', layerName),
+  getPathGeometry: (layerName, pathIndex) => ipcRenderer.invoke('pdf:getPathGeometry', { layerName, pathIndex })
 };

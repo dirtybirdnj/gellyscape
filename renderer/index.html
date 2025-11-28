@@ -859,6 +859,22 @@
       70% { opacity: 1; transform: translateY(-10px); }
       100% { opacity: 0; transform: translateY(-20px); }
     }
+
+    /* Path highlight animation */
+    @keyframes pulse-highlight {
+      0% { stroke-opacity: 1; stroke-width: 4; }
+      50% { stroke-opacity: 0.5; stroke-width: 6; }
+      100% { stroke-opacity: 1; stroke-width: 4; }
+    }
+
+    /* Layer expand button hover */
+    .layer-expand-btn:hover {
+      background: #e8ebff;
+    }
+
+    .layer-expand-btn:hover svg {
+      opacity: 0.8 !important;
+    }
   </style>
 </head>
 <body>
