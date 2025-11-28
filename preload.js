@@ -50,5 +50,8 @@ window.electronAPI = {
   removeRecentFile: (filePath) => ipcRenderer.invoke('files:removeRecent', filePath),
   clearRecentFiles: () => ipcRenderer.invoke('files:clearRecent'),
   fileExists: (filePath) => ipcRenderer.invoke('files:exists', filePath),
-  addRecentFile: (filePath, metadata) => ipcRenderer.invoke('files:addRecent', { filePath, metadata })
+  addRecentFile: (filePath, metadata) => ipcRenderer.invoke('files:addRecent', { filePath, metadata }),
+
+  // Text extraction
+  extractText: (filePath) => ipcRenderer.invoke('pdf:extractText', filePath)
 };

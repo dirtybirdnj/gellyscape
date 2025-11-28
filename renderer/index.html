@@ -762,6 +762,103 @@
     .recent-file-remove:hover {
       color: #dc3545;
     }
+
+    /* Loading gear animation */
+    .loading-gear {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #667eea;
+      margin-left: 12px;
+      opacity: 0.4;
+      transition: opacity 0.2s ease;
+    }
+
+    .loading-gear.spinning {
+      opacity: 1;
+    }
+
+    .loading-gear.spinning svg {
+      animation: gearSpin 1s linear infinite;
+    }
+
+    @keyframes gearSpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Color swatch styles */
+    .color-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      flex-shrink: 0;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+
+    .color-swatch:hover {
+      transform: scale(1.2);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      z-index: 10;
+    }
+
+    .color-swatch:active {
+      transform: scale(1.1);
+    }
+
+    /* Color swatch tooltip */
+    .color-tooltip {
+      position: fixed;
+      background: #333;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 0.75em;
+      font-family: monospace;
+      white-space: nowrap;
+      z-index: 1000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .color-tooltip.visible {
+      opacity: 1;
+    }
+
+    .color-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #333;
+    }
+
+    /* Copy feedback */
+    .copy-feedback {
+      position: fixed;
+      background: #28a745;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      z-index: 1001;
+      pointer-events: none;
+      animation: copyFade 1.5s ease forwards;
+    }
+
+    @keyframes copyFade {
+      0% { opacity: 1; transform: translateY(0); }
+      70% { opacity: 1; transform: translateY(-10px); }
+      100% { opacity: 0; transform: translateY(-20px); }
+    }
   </style>
 </head>
 <body>
@@ -771,6 +868,7 @@
       <div class="toolbar-left">
         <button class="tab-btn active" data-tab="vector-data">Vector Data <span id="vectorCountBadge"></span></button>
         <button class="tab-btn" data-tab="text-layers">Overlay <span id="overlayCountBadge"></span></button>
+        <button class="tab-btn" data-tab="text-extract">Text <span id="textCountBadge"></span></button>
         <button class="tab-btn" data-tab="export">Export</button>
         <button class="tab-btn" data-tab="metadata">Metadata</button>
       </div>
@@ -778,6 +876,12 @@
         <div id="fileInfo" class="file-info" style="display: none;">
           <div id="fileName" class="file-info-name"></div>
           <div id="fileSize" class="file-info-size"></div>
+        </div>
+        <div id="loadingGear" class="loading-gear">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
         </div>
       </div>
     </div>
@@ -814,6 +918,47 @@
                   </div>
                 </div>
                 <div id="textLayerControls" class="layer-controls"></div>
+              </div>
+            </div>
+
+            <!-- Text Extraction Tab -->
+            <div id="text-extract-panel" class="tab-panel">
+              <div class="sidebar-full">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <h3 style="font-size: 1em; font-weight: bold; color: #333;">Text Extraction</h3>
+                  <button id="extractTextBtn" class="layer-toggle-btn" title="Extract Text">Extract</button>
+                </div>
+
+                <!-- Font Information Section -->
+                <div class="text-extract-section" style="margin-bottom: 16px;">
+                  <div style="font-weight: 600; font-size: 0.85em; color: #333; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">
+                    Fonts Used
+                  </div>
+                  <div id="fontList" style="max-height: 150px; overflow-y: auto;">
+                    <div style="color: #999; font-size: 0.85em; font-style: italic;">No fonts detected yet</div>
+                  </div>
+                </div>
+
+                <!-- Text Elements Section -->
+                <div class="text-extract-section" style="margin-bottom: 16px;">
+                  <div style="font-weight: 600; font-size: 0.85em; color: #333; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">
+                    Text Elements <span id="textElementCount" style="font-weight: normal; color: #666;"></span>
+                  </div>
+                  <div id="textElementList" style="max-height: 400px; overflow-y: auto;">
+                    <div style="color: #999; font-size: 0.85em; font-style: italic;">Click "Extract" to analyze text in the PDF</div>
+                  </div>
+                </div>
+
+                <!-- Export Options -->
+                <div class="text-extract-section">
+                  <div style="font-weight: 600; font-size: 0.85em; color: #333; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid #667eea;">
+                    Export Options
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <button id="exportTextJsonBtn" class="export-btn" disabled>Export as JSON</button>
+                    <button id="exportTextSvgBtn" class="export-btn" disabled>Export Text as SVG Paths</button>
+                  </div>
+                </div>
               </div>
             </div>
 

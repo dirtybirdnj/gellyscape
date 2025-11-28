@@ -411,6 +411,30 @@ ipcMain.handle('pdf:getDebugInfo', async () => {
   };
 });
 
+// Extract text from PDF
+ipcMain.handle('pdf:extractText', async (event, filePath) => {
+  try {
+    console.log('Extracting text from:', filePath);
+
+    // Import the text extractor module
+    const TextExtractor = require('./src/text-extractor');
+    const extractor = new TextExtractor();
+
+    const result = await extractor.extract(filePath);
+
+    return {
+      success: true,
+      data: result
+    };
+  } catch (error) {
+    console.error('Text extraction error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
 // Export raster layer
 ipcMain.handle('export:raster', async (event, data) => {
   try {

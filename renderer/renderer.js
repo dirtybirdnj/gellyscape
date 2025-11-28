@@ -50,8 +50,27 @@ const OVERLAY_LAYER_PATTERNS = [
   'Barcode',
   'Department of Defense',
   'Federal Administrated Lands',
-  'Images'
+  'Images',
+  'Unassigned' // USGS logo and other unassigned elements
 ];
+
+// Specific color sublayers that should be treated as overlays
+// Format: { baseLayer: [colors] } - white shields only
+const OVERLAY_COLOR_SUBLAYERS = {
+  'Hydrography': ['rgb(255,255,255)'], // White shields/masks
+  'Road Features': ['rgb(255,255,255)'], // White shields only
+  'Transportation': ['rgb(255,255,255)'], // White shields only
+  'Terrain': ['rgb(255,255,255)'], // White shields/masks
+  'Woodland': ['rgb(255,255,255)'] // White shields/masks
+};
+
+// Overlay group categories for organizing the sidebar
+const OVERLAY_GROUPS = {
+  'Map Elements': ['Map Elements', 'Map Collar', 'Map Frame', 'Barcode', 'Images'],
+  'Projection and Grids': ['Projection and Grids', 'Graticule'],
+  'Structures': ['Structures', 'Airports'],
+  // Everything else (Geographic Names, Boundaries, shields, Unassigned, etc.) goes to 'Other'
+};
 
 // Layers to exclude from bounds calculation
 // These layers often contain coordinates that extend far beyond the actual map area
@@ -132,12 +151,22 @@ function getDescriptiveLayerName(baseName, colorStr) {
 
 // Helper function to check if a layer should be categorized as overlay
 function isOverlayLayer(layerName) {
-  // Extract base layer name if it's a color sublayer
-  const baseName = layerName.includes('::') ? layerName.split('::')[0] : layerName;
+  // Extract base layer name and color if it's a color sublayer
+  const [baseName, colorStr] = layerName.includes('::')
+    ? layerName.split('::')
+    : [layerName, null];
 
   // Text layers (with emoji prefix) are always overlays
   if (baseName.startsWith('📝 ')) {
     return true;
+  }
+
+  // Check if this specific color sublayer should be an overlay
+  // (e.g., white shields, black airport runways)
+  if (colorStr && OVERLAY_COLOR_SUBLAYERS[baseName]) {
+    if (OVERLAY_COLOR_SUBLAYERS[baseName].includes(colorStr)) {
+      return true;
+    }
   }
 
   // Check if layer name matches any overlay patterns
@@ -176,6 +205,18 @@ const fileNameDiv = document.getElementById('fileName');
 const fileSizeDiv = document.getElementById('fileSize');
 const vectorCountBadge = document.getElementById('vectorCountBadge');
 const overlayCountBadge = document.getElementById('overlayCountBadge');
+const textCountBadge = document.getElementById('textCountBadge');
+
+// Text extraction elements
+const extractTextBtn = document.getElementById('extractTextBtn');
+const fontListDiv = document.getElementById('fontList');
+const textElementListDiv = document.getElementById('textElementList');
+const textElementCountSpan = document.getElementById('textElementCount');
+const exportTextJsonBtn = document.getElementById('exportTextJsonBtn');
+const exportTextSvgBtn = document.getElementById('exportTextSvgBtn');
+
+// Text extraction state
+let extractedTextData = null;
 
 // Crop mode elements
 const cropModeBtn = document.getElementById('cropModeBtn');
@@ -193,6 +234,12 @@ const applyCropBtn = document.getElementById('applyCropBtn');
 const bgColorCheck = document.getElementById('bgColorCheck');
 const bgColorPicker = document.getElementById('bgColorPicker');
 
+// Loading gear element
+const loadingGear = document.getElementById('loadingGear');
+
+// Color tooltip element (created dynamically)
+let colorTooltip = null;
+
 // Event listeners
 uploadBtn.addEventListener('click', handleUpload);
 exportSvgBtn.addEventListener('click', handleExportSVG);
@@ -203,6 +250,17 @@ selectAllLayersBtn.addEventListener('click', selectAllLayers);
 deselectAllLayersBtn.addEventListener('click', deselectAllLayers);
 selectAllTextLayersBtn.addEventListener('click', selectAllTextLayers);
 deselectAllTextLayersBtn.addEventListener('click', deselectAllTextLayers);
+
+// Text extraction event listeners
+if (extractTextBtn) {
+  extractTextBtn.addEventListener('click', handleExtractText);
+}
+if (exportTextJsonBtn) {
+  exportTextJsonBtn.addEventListener('click', handleExportTextJson);
+}
+if (exportTextSvgBtn) {
+  exportTextSvgBtn.addEventListener('click', handleExportTextSvg);
+}
 
 // Crop mode event listeners
 cropModeBtn.addEventListener('click', toggleCropMode);
@@ -230,6 +288,132 @@ mapPreviewDiv.addEventListener('mouseleave', endPan);
 
 // Zoom with mouse wheel
 mapPreviewDiv.addEventListener('wheel', handleWheel);
+
+// ============================================
+// Loading Gear Indicator Functions
+// ============================================
+
+function showLoadingGear() {
+  if (loadingGear) {
+    loadingGear.classList.add('spinning');
+  }
+}
+
+function hideLoadingGear() {
+  if (loadingGear) {
+    loadingGear.classList.remove('spinning');
+  }
+}
+
+// ============================================
+// Color Swatch Helper Functions
+// ============================================
+
+// Convert RGB string to hex
+function rgbToHex(rgbStr) {
+  const match = rgbStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (!match) return rgbStr;
+  const r = parseInt(match[1]);
+  const g = parseInt(match[2]);
+  const b = parseInt(match[3]);
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+// Create or get the color tooltip element
+function getColorTooltip() {
+  if (!colorTooltip) {
+    colorTooltip = document.createElement('div');
+    colorTooltip.className = 'color-tooltip';
+    document.body.appendChild(colorTooltip);
+  }
+  return colorTooltip;
+}
+
+// Show tooltip for a color swatch
+function showColorTooltip(swatch, color) {
+  const tooltip = getColorTooltip();
+  const hex = rgbToHex(color);
+  tooltip.innerHTML = `${hex}<br>${color}`;
+
+  const rect = swatch.getBoundingClientRect();
+  tooltip.style.left = `${rect.left + rect.width / 2}px`;
+  tooltip.style.top = `${rect.top - 8}px`;
+  tooltip.style.transform = 'translate(-50%, -100%)';
+  tooltip.classList.add('visible');
+}
+
+// Hide the color tooltip
+function hideColorTooltip() {
+  const tooltip = getColorTooltip();
+  tooltip.classList.remove('visible');
+}
+
+// Copy color to clipboard and show feedback
+async function copyColorToClipboard(color, event) {
+  const hex = rgbToHex(color);
+  try {
+    await navigator.clipboard.writeText(hex);
+    showCopyFeedback(event, `Copied ${hex}`);
+  } catch (err) {
+    console.error('Failed to copy:', err);
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = hex;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    showCopyFeedback(event, `Copied ${hex}`);
+  }
+}
+
+// Show copy feedback popup
+function showCopyFeedback(event, message) {
+  const feedback = document.createElement('div');
+  feedback.className = 'copy-feedback';
+  feedback.textContent = message;
+  feedback.style.left = `${event.clientX}px`;
+  feedback.style.top = `${event.clientY - 30}px`;
+  feedback.style.transform = 'translateX(-50%)';
+  document.body.appendChild(feedback);
+
+  // Remove after animation
+  setTimeout(() => {
+    feedback.remove();
+  }, 1500);
+}
+
+// Show color picker for changing a layer's color
+function showColorPicker(layerName, currentColor, swatch) {
+  // Create a hidden color input
+  const picker = document.createElement('input');
+  picker.type = 'color';
+  picker.value = rgbToHex(currentColor);
+  picker.style.position = 'absolute';
+  picker.style.opacity = '0';
+  picker.style.pointerEvents = 'none';
+  document.body.appendChild(picker);
+
+  picker.addEventListener('input', (e) => {
+    const newColor = e.target.value;
+    // Update the swatch background
+    swatch.style.background = newColor;
+    // Store the color change for this layer
+    if (!window.layerColorOverrides) {
+      window.layerColorOverrides = {};
+    }
+    window.layerColorOverrides[layerName] = newColor;
+    // Regenerate preview with new color
+    generateMapPreview();
+  });
+
+  picker.addEventListener('change', () => {
+    // Clean up picker
+    setTimeout(() => picker.remove(), 100);
+  });
+
+  picker.click();
+}
 
 // Tab switching
 function switchTab(tabName) {
@@ -594,13 +778,8 @@ async function showLightweightPreview() {
   console.log('enabledLayers count:', enabledLayers.size);
   console.log('First 5 enabledLayers:', Array.from(enabledLayers).slice(0, 5));
 
-  // Show loading indicator
-  mapPreviewDiv.innerHTML = `
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #666;">
-      <div class="spinner"></div>
-      <div style="margin-top: 16px;">Generating preview...</div>
-    </div>
-  `;
+  // Show loading gear in toolbar (no jarring white overlay)
+  showLoadingGear();
 
   try {
     // Request SVG from backend
@@ -650,13 +829,34 @@ async function showLightweightPreview() {
 
       updateMapStats(`${result.stats.pathCount.toLocaleString()} paths in ${result.stats.layerCount} layers`);
     } else {
+      // Show frame lines when no layers are selected
+      const containerWidth = mapPreviewDiv.clientWidth || 800;
+      const containerHeight = mapPreviewDiv.clientHeight || 600;
+      const bounds = cachedBounds || { minX: 0, minY: 0, width: 1728, height: 2088 };
+      const { minX, minY, width, height } = bounds;
+
+      // Calculate scale to fit
+      const scaleX = containerWidth / (width + 40);
+      const scaleY = containerHeight / (height + 40);
+      const frameScale = Math.min(scaleX, scaleY) * 0.95;
+
+      const displayWidth = Math.round(width * frameScale);
+      const displayHeight = Math.round(height * frameScale);
+      const inset = 10;
+
       mapPreviewDiv.innerHTML = `
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #999;">
-          <div style="font-size: 2em; margin-bottom: 12px;">⚠️</div>
-          <div>No paths to display</div>
-          <div style="font-size: 0.85em; margin-top: 8px;">Select some layers to see the preview</div>
-        </div>
+        <svg xmlns="http://www.w3.org/2000/svg" width="${displayWidth}" height="${displayHeight}"
+             viewBox="${minX - 5} ${minY - 5} ${width + 10} ${height + 10}"
+             style="display: block; margin: auto;" preserveAspectRatio="xMidYMid meet">
+          <!-- Black solid line frame (outer boundary) -->
+          <rect x="${minX}" y="${minY}" width="${width}" height="${height}"
+                fill="none" stroke="#000000" stroke-width="2"/>
+          <!-- Red dotted line frame (inner boundary) -->
+          <rect x="${minX + inset}" y="${minY + inset}" width="${width - inset * 2}" height="${height - inset * 2}"
+                fill="none" stroke="#ff0000" stroke-width="1.5" stroke-dasharray="8,4"/>
+        </svg>
       `;
+      updateMapStats('No layers selected');
     }
   } catch (error) {
     console.error('Preview generation error:', error);
@@ -667,6 +867,9 @@ async function showLightweightPreview() {
         <div style="font-size: 0.85em; margin-top: 8px;">${error.message}</div>
       </div>
     `;
+  } finally {
+    // Always hide the loading gear when done
+    hideLoadingGear();
   }
 }
 
@@ -836,11 +1039,92 @@ function displayLayerControls() {
     layerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No plottable layers found</div>';
   }
 
-  // Populate overlay/annotation layers in Overlay tab
+  // Populate overlay/annotation layers in Overlay tab, organized by groups
   if (overlayLayers.length > 0) {
+    // Helper to get overlay group for a layer
+    const getOverlayGroup = (layerName) => {
+      const baseName = layerName.includes('::') ? layerName.split('::')[0] : layerName;
+
+      // Check each defined group
+      for (const [groupName, patterns] of Object.entries(OVERLAY_GROUPS)) {
+        if (patterns.some(p => baseName.toLowerCase().includes(p.toLowerCase()))) {
+          return groupName;
+        }
+      }
+      return 'Other';
+    };
+
+    // Group layers by category
+    const groupedLayers = {
+      'Map Elements': [],
+      'Projection and Grids': [],
+      'Structures': [],
+      'Other': []
+    };
+
     overlayLayers.forEach(layerName => {
-      const layerItem = createLayerControlItem(layerName);
-      textLayerControlsDiv.appendChild(layerItem);
+      const group = getOverlayGroup(layerName);
+      groupedLayers[group].push(layerName);
+    });
+
+    // Create collapsible sections for each group
+    const groupOrder = ['Map Elements', 'Projection and Grids', 'Structures', 'Other'];
+
+    groupOrder.forEach(groupName => {
+      const layers = groupedLayers[groupName];
+      if (layers.length === 0) return;
+
+      // Create group container
+      const groupContainer = document.createElement('div');
+      groupContainer.className = 'overlay-group';
+      groupContainer.style.cssText = 'margin-bottom: 12px;';
+
+      // Create collapsible header
+      const header = document.createElement('div');
+      header.className = 'collapseable-header';
+      header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #e8ebff; border-radius: 4px; cursor: pointer; user-select: none;';
+
+      const headerLeft = document.createElement('div');
+      headerLeft.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+
+      const collapseIcon = document.createElement('span');
+      collapseIcon.className = 'collapse-icon';
+      collapseIcon.textContent = '▼';
+      collapseIcon.style.cssText = 'font-size: 0.7em; transition: transform 0.2s;';
+
+      const groupTitle = document.createElement('span');
+      groupTitle.style.cssText = 'font-weight: 600; font-size: 0.85em; color: #333;';
+      groupTitle.textContent = groupName;
+
+      const countBadge = document.createElement('span');
+      countBadge.style.cssText = 'font-size: 0.75em; color: #666; background: white; padding: 1px 6px; border-radius: 10px;';
+      countBadge.textContent = layers.length;
+
+      headerLeft.appendChild(collapseIcon);
+      headerLeft.appendChild(groupTitle);
+      header.appendChild(headerLeft);
+      header.appendChild(countBadge);
+
+      // Create content container
+      const content = document.createElement('div');
+      content.className = 'collapseable-content';
+      content.style.cssText = 'padding-top: 4px;';
+
+      // Add layers to content
+      layers.forEach(layerName => {
+        const layerItem = createLayerControlItem(layerName);
+        content.appendChild(layerItem);
+      });
+
+      // Toggle collapse on header click
+      header.addEventListener('click', () => {
+        const isCollapsed = content.classList.toggle('collapsed');
+        collapseIcon.style.transform = isCollapsed ? 'rotate(-90deg)' : '';
+      });
+
+      groupContainer.appendChild(header);
+      groupContainer.appendChild(content);
+      textLayerControlsDiv.appendChild(groupContainer);
     });
   } else {
     textLayerControlsDiv.innerHTML = '<div style="color: #999; font-size: 0.9em;">No overlay layers found</div>';
@@ -952,15 +1236,27 @@ function createLayerControlItem(layerName) {
     // Show up to 3 colors
     colors.slice(0, 3).forEach(color => {
       const swatch = document.createElement('span');
-      swatch.style.cssText = `
-        display: inline-block;
-        width: 12px;
-        height: 12px;
-        background: ${color};
-        border: 1px solid #ccc;
-        border-radius: 2px;
-        flex-shrink: 0;
-      `;
+      swatch.className = 'color-swatch';
+      swatch.style.background = color;
+      swatch.dataset.color = color;
+      swatch.dataset.layerName = layerName;
+
+      // Hover tooltip
+      swatch.addEventListener('mouseenter', () => showColorTooltip(swatch, color));
+      swatch.addEventListener('mouseleave', () => hideColorTooltip());
+
+      // Single click to copy color
+      swatch.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyColorToClipboard(color, e);
+      });
+
+      // Double click to open color picker
+      swatch.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        showColorPicker(layerName, color, swatch);
+      });
+
       swatchContainer.appendChild(swatch);
     });
 
@@ -1367,15 +1663,26 @@ function renderCanvasPreview() {
 
   console.timeEnd('Render:CalcBounds');
 
-  // Handle empty selection - render empty canvas with "No layers selected" message
-  // This maintains consistent canvas size instead of switching to a div
+  // Handle empty selection - draw frame lines to show map boundaries
+  // This maintains consistent canvas size and shows the map area
   if (filteredPaths.length === 0) {
-    // Draw centered message
-    ctx.fillStyle = '#999';
-    ctx.font = '16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('No layers selected', containerWidth / 2, containerHeight / 2);
+    // Apply transform to draw frame in map coordinates
+    ctx.translate(containerWidth / 2, containerHeight / 2);
+    ctx.scale(scale, -scale); // Flip Y for PDF coordinate system
+    ctx.translate(-centerX, -centerY);
+
+    // Draw black solid line frame (outer boundary)
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2 / scale;
+    ctx.setLineDash([]);
+    ctx.strokeRect(minX, minY, width, height);
+
+    // Draw red dotted line frame (inner boundary, slightly inset)
+    const inset = 10 / scale;
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 1.5 / scale;
+    ctx.setLineDash([8 / scale, 4 / scale]);
+    ctx.strokeRect(minX + inset, minY + inset, width - inset * 2, height - inset * 2);
 
     mapPreviewDiv.innerHTML = '';
     mapPreviewDiv.appendChild(canvas);
@@ -1560,6 +1867,7 @@ async function handleExportSVG() {
     return;
   }
 
+  showLoadingGear();
   updateMapStats('Generating SVG...');
 
   try {
@@ -1572,6 +1880,7 @@ async function handleExportSVG() {
 
     if (!svgResult.success) {
       updateMapStats(`Error: ${svgResult.error}`);
+      hideLoadingGear();
       return;
     }
 
@@ -1588,6 +1897,7 @@ async function handleExportSVG() {
 
     if (!savePath) {
       updateMapStats('Export cancelled');
+      hideLoadingGear();
       return;
     }
 
@@ -1609,6 +1919,8 @@ async function handleExportSVG() {
   } catch (error) {
     console.error('Export error:', error);
     updateMapStats(`Error: ${error.message}`);
+  } finally {
+    hideLoadingGear();
   }
 }
 
@@ -1675,17 +1987,21 @@ function generateSVG(isExport) {
   });
 
   if (filteredPaths.length === 0) {
-    // Return empty SVG with correct dimensions to maintain consistent view
+    // Return SVG with frame lines to show map boundaries
     if (cachedBounds) {
       const { minX, minY, width, height } = cachedBounds;
       const padding = 10;
       const viewBox = `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
-      const textX = minX + width / 2;
-      const textY = minY + height / 2;
-      const fontSize = Math.max(width, height) * 0.02;
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="${viewBox}"><text x="${textX}" y="${textY}" text-anchor="middle" fill="#999" font-size="${fontSize}">No layers selected</text></svg>`;
+      const inset = 10;
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="${viewBox}">
+        <rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="none" stroke="#000000" stroke-width="2"/>
+        <rect x="${minX + inset}" y="${minY + inset}" width="${width - inset * 2}" height="${height - inset * 2}" fill="none" stroke="#ff0000" stroke-width="1.5" stroke-dasharray="8,4"/>
+      </svg>`;
     }
-    return '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><text x="200" y="150" text-anchor="middle" fill="#999">No paths to display</text></svg>';
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+      <rect x="5" y="5" width="390" height="290" fill="none" stroke="#000000" stroke-width="2"/>
+      <rect x="15" y="15" width="370" height="270" fill="none" stroke="#ff0000" stroke-width="1.5" stroke-dasharray="8,4"/>
+    </svg>`;
   }
 
   // Performance optimization: Limit paths in preview mode for large files
@@ -2967,3 +3283,168 @@ async function applyCrop() {
     console.error('Crop error:', error);
   }
 }
+
+
+// ============================================
+// Text Extraction Functions
+// ============================================
+
+async function handleExtractText() {
+  if (!currentFilePath) {
+    console.log("No PDF loaded");
+    return;
+  }
+
+  showLoadingGear();
+  
+  if (extractTextBtn) {
+    extractTextBtn.disabled = true;
+    extractTextBtn.textContent = "Extracting...";
+  }
+
+  try {
+    // Call backend to extract text
+    const result = await window.electronAPI.extractText(currentFilePath);
+
+    if (result.success) {
+      extractedTextData = result.data;
+      displayExtractedText(result.data);
+      
+      // Enable export buttons
+      if (exportTextJsonBtn) exportTextJsonBtn.disabled = false;
+      if (exportTextSvgBtn) exportTextSvgBtn.disabled = false;
+      
+      // Update badge
+      if (textCountBadge) {
+        textCountBadge.textContent = `(${result.data.textElements?.length || 0})`;
+      }
+    } else {
+      console.error("Text extraction failed:", result.error);
+      if (textElementListDiv) {
+        textElementListDiv.innerHTML = `<div style="color: #dc3545; font-size: 0.85em;">Error: ${result.error}</div>`;
+      }
+    }
+  } catch (error) {
+    console.error("Text extraction error:", error);
+    if (textElementListDiv) {
+      textElementListDiv.innerHTML = `<div style="color: #dc3545; font-size: 0.85em;">Error: ${error.message}</div>`;
+    }
+  } finally {
+    hideLoadingGear();
+    if (extractTextBtn) {
+      extractTextBtn.disabled = false;
+      extractTextBtn.textContent = "Extract";
+    }
+  }
+}
+
+function displayExtractedText(data) {
+  // Display fonts
+  if (fontListDiv && data.fonts) {
+    if (data.fonts.length > 0) {
+      fontListDiv.innerHTML = data.fonts.map(font => `
+        <div style="padding: 4px 8px; margin-bottom: 4px; background: white; border-radius: 4px; border: 1px solid #e0e4ff; font-size: 0.8em;">
+          <div style="font-weight: 600; color: #333;">${font.name || font.ref}</div>
+          <div style="font-size: 0.9em; color: #666;">
+            ${font.baseFont ? `Base: ${font.baseFont}` : ""}
+            ${font.encoding ? ` • Encoding: ${font.encoding}` : ""}
+            ${font.subtype ? ` • Type: ${font.subtype}` : ""}
+          </div>
+        </div>
+      `).join("");
+    } else {
+      fontListDiv.innerHTML = `<div style="color: #999; font-size: 0.85em; font-style: italic;">No embedded fonts found</div>`;
+    }
+  }
+
+  // Display text elements
+  if (textElementListDiv && data.textElements) {
+    if (textElementCountSpan) {
+      textElementCountSpan.textContent = `(${data.textElements.length})`;
+    }
+
+    if (data.textElements.length > 0) {
+      // Group text elements by layer
+      const byLayer = {};
+      data.textElements.forEach(el => {
+        const layer = el.layer || "Unassigned";
+        if (!byLayer[layer]) byLayer[layer] = [];
+        byLayer[layer].push(el);
+      });
+
+      let html = "";
+      Object.entries(byLayer).forEach(([layer, elements]) => {
+        html += `
+          <div style="margin-bottom: 12px;">
+            <div style="font-weight: 600; font-size: 0.8em; color: #667eea; margin-bottom: 4px; padding: 4px 8px; background: #f0f2ff; border-radius: 4px;">
+              ${layer} <span style="color: #999; font-weight: normal;">(${elements.length})</span>
+            </div>
+        `;
+        
+        // Show first 50 elements per layer
+        elements.slice(0, 50).forEach(el => {
+          const displayText = el.text.length > 40 ? el.text.substring(0, 40) + "..." : el.text;
+          const posInfo = `(${el.x?.toFixed(1) || "?"}, ${el.y?.toFixed(1) || "?"})`;
+          
+          html += `
+            <div style="padding: 4px 8px; margin-bottom: 2px; background: white; border-radius: 3px; border: 1px solid #eee; font-size: 0.75em; display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: #333; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${el.text}">${displayText}</span>
+              <span style="color: #999; font-size: 0.9em; margin-left: 8px; flex-shrink: 0;">${posInfo}</span>
+            </div>
+          `;
+        });
+
+        if (elements.length > 50) {
+          html += `<div style="color: #999; font-size: 0.75em; font-style: italic; padding: 4px 8px;">... and ${elements.length - 50} more</div>`;
+        }
+
+        html += `</div>`;
+      });
+
+      textElementListDiv.innerHTML = html;
+    } else {
+      textElementListDiv.innerHTML = `<div style="color: #999; font-size: 0.85em; font-style: italic;">No text elements found</div>`;
+    }
+  }
+}
+
+async function handleExportTextJson() {
+  if (!extractedTextData) return;
+
+  try {
+    const defaultName = currentFilePath
+      ? currentFilePath.split("/").pop().replace(".pdf", "_text.json")
+      : "text_export.json";
+
+    const savePath = await window.electronAPI.showSaveDialog({
+      title: "Save Text Data as JSON",
+      defaultPath: defaultName,
+      filters: [{ name: "JSON Files", extensions: ["json"] }]
+    });
+
+    if (!savePath) return;
+
+    const jsonContent = JSON.stringify(extractedTextData, null, 2);
+    const writeResult = await window.electronAPI.writeFile({
+      filePath: savePath,
+      content: jsonContent
+    });
+
+    if (writeResult.success) {
+      console.log("Text data exported to:", savePath);
+      await window.electronAPI.showInFinder(savePath);
+    }
+  } catch (error) {
+    console.error("Export error:", error);
+  }
+}
+
+async function handleExportTextSvg() {
+  if (!extractedTextData) return;
+
+  // TODO: Implement SVG path export for text
+  // This will convert text to SVG paths using font outlines
+  console.log("Text to SVG path export - not yet implemented");
+  alert("Text to SVG path export is not yet implemented.\nUse JSON export to get text positions for your text rendering service.");
+}
+
