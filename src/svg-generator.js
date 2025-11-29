@@ -3,6 +3,55 @@
  * Generates SVG from extracted PDF paths - runs in main process to avoid blocking renderer
  */
 
+// Layer categorization - defines which layers are overlays/annotations vs plottable vector data
+const OVERLAY_LAYER_PATTERNS = [
+  'Boundaries',
+  'County or Equivalent',
+  'Geographic Names',
+  'Map Elements',
+  'Projection and Grids',
+  'Road Names and Shields',
+  'Structures',
+  'Airports',
+  'Barcode',
+  'Department of Defense',
+  'Federal Administrated Lands',
+  'Images',
+  'Unassigned'
+];
+
+// Specific color sublayers that should be treated as overlays (white shields)
+const OVERLAY_COLOR_SUBLAYERS = {
+  'Hydrography': ['rgb(255,255,255)'],
+  'Road Features': ['rgb(255,255,255)'],
+  'Transportation': ['rgb(255,255,255)'],
+  'Terrain': ['rgb(255,255,255)'],
+  'Woodland': ['rgb(255,255,255)']
+};
+
+/**
+ * Check if a layer should be categorized as overlay
+ * @param {string} layerName - Full layer name (may include ::color suffix)
+ * @returns {boolean}
+ */
+function isOverlayLayer(layerName) {
+  const [baseName, colorStr] = layerName.includes('::')
+    ? layerName.split('::')
+    : [layerName, null];
+
+  // Check if this is an overlay color sublayer (white shields)
+  if (colorStr && OVERLAY_COLOR_SUBLAYERS[baseName]) {
+    if (OVERLAY_COLOR_SUBLAYERS[baseName].includes(colorStr)) {
+      return true;
+    }
+  }
+
+  // Check if layer name matches any overlay patterns
+  return OVERLAY_LAYER_PATTERNS.some(pattern =>
+    baseName.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
 class SVGGenerator {
   constructor(paths, options = {}) {
     this.paths = paths || [];
@@ -184,15 +233,20 @@ class SVGGenerator {
     const pathsByLayer = this.groupPathsByLayer(filteredPaths);
     const layerNames = Object.keys(pathsByLayer);
 
+    // Separate layers into vector and overlay categories
+    const vectorLayers = layerNames.filter(name => !isOverlayLayer(name));
+    const overlayLayers = layerNames.filter(name => isOverlayLayer(name));
+
     // Add title
     svg += `  <title>GeoPDF Export - ${layerNames.length} layers, ${filteredPaths.length} paths</title>\n`;
 
-    // Render each layer group
-    for (const layerName of layerNames) {
+    // Helper function to render a layer's paths
+    const renderLayerPaths = (layerName, indent = '    ') => {
+      let layerSvg = '';
       const layerPaths = pathsByLayer[layerName];
       const safeId = layerName.replace(/[^a-zA-Z0-9]/g, '-');
 
-      svg += `  <g id="layer-${safeId}" data-layer="${this.escapeXml(layerName)}">\n`;
+      layerSvg += `${indent}<g id="layer-${safeId}" data-layer="${this.escapeXml(layerName)}">\n`;
 
       for (const path of layerPaths) {
         // Skip pure white fills
@@ -210,9 +264,28 @@ class SVGGenerator {
         const baseStrokeWidth = path.lineWidth !== undefined ? path.lineWidth : (path.strokeWidth || 1);
         const strokeWidth = baseStrokeWidth * strokeScale;
 
-        svg += `    <path d="${pathData}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>\n`;
+        layerSvg += `${indent}  <path d="${pathData}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>\n`;
       }
 
+      layerSvg += `${indent}</g>\n`;
+      return layerSvg;
+    };
+
+    // Render Vector_Data group (only if there are vector layers)
+    if (vectorLayers.length > 0) {
+      svg += `  <g id="Vector_Data">\n`;
+      for (const layerName of vectorLayers) {
+        svg += renderLayerPaths(layerName, '    ');
+      }
+      svg += `  </g>\n`;
+    }
+
+    // Render Overlay group (only if there are overlay layers)
+    if (overlayLayers.length > 0) {
+      svg += `  <g id="Overlay">\n`;
+      for (const layerName of overlayLayers) {
+        svg += renderLayerPaths(layerName, '    ');
+      }
       svg += `  </g>\n`;
     }
 
@@ -362,10 +435,15 @@ class SVGGenerator {
       const layerName = path.layer || 'Unassigned';
 
       let pathColor = null;
+      let isStroke = false;
+      let isFill = false;
+
       if (path.stroke && path.strokeColor) {
         pathColor = `rgb(${path.strokeColor.join(',')})`;
+        isStroke = true;
       } else if (path.fill && path.fillColor) {
         pathColor = `rgb(${path.fillColor.join(',')})`;
+        isFill = true;
       }
 
       if (!pathColor) continue;
@@ -375,17 +453,33 @@ class SVGGenerator {
 
       if (existing) {
         existing.pathCount++;
+        if (isStroke) existing.hasStroke = true;
+        if (isFill) existing.hasFill = true;
       } else {
         layerMap.set(sublayerName, {
           name: sublayerName,
           baseLayer: layerName,
           color: pathColor,
-          pathCount: 1
+          pathCount: 1,
+          hasStroke: isStroke,
+          hasFill: isFill
         });
       }
     }
 
-    return Array.from(layerMap.values());
+    // Compute renderType for each layer
+    const layers = Array.from(layerMap.values());
+    for (const layer of layers) {
+      if (layer.hasStroke && layer.hasFill) {
+        layer.renderType = 'mixed';
+      } else if (layer.hasStroke) {
+        layer.renderType = 'stroke';
+      } else {
+        layer.renderType = 'fill';
+      }
+    }
+
+    return layers;
   }
 
   /**

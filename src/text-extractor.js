@@ -214,6 +214,10 @@ class TextExtractor {
         info.subtype = subtype.toString().replace('/', '');
       }
 
+      // For Type0 fonts, default to 2-byte (4 hex char) encoding
+      info.isType0 = info.subtype === 'Type0';
+      info.bytesPerChar = info.isType0 ? 2 : 1;
+
       // Encoding
       const encoding = fontObj.get(PDFName.of('Encoding'));
       if (encoding instanceof PDFName) {
@@ -230,7 +234,9 @@ class TextExtractor {
         if (cmapStream) {
           const cmapData = this.decodeStream(cmapStream);
           if (cmapData) {
-            info.unicodeMap = this.parseToUnicodeCMap(cmapData);
+            const cmapResult = this.parseToUnicodeCMap(cmapData);
+            info.unicodeMap = cmapResult.map;
+            info.bytesPerChar = cmapResult.codespaceBytes;
           }
         }
       }
@@ -254,11 +260,19 @@ class TextExtractor {
 
   /**
    * Parse ToUnicode CMap to build character mapping
+   * Returns { map: {}, codespaceBytes: number }
    */
   parseToUnicodeCMap(cmapData) {
-    const map = {};
+    const result = { map: {}, codespaceBytes: 2 }; // Default to 2-byte for CID fonts
 
     try {
+      // Detect codespace byte width from begincodespacerange
+      const codespaceMatch = cmapData.match(/begincodespacerange\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/);
+      if (codespaceMatch) {
+        // Byte width is half the hex string length
+        result.codespaceBytes = codespaceMatch[1].length / 2;
+      }
+
       // Parse beginbfchar sections: <src> <dst>
       const bfcharRegex = /beginbfchar([\s\S]*?)endbfchar/g;
       let match;
@@ -274,7 +288,7 @@ class TextExtractor {
             const codePoint = parseInt(dst.substr(i, 4), 16);
             char += String.fromCodePoint(codePoint);
           }
-          map[src.toUpperCase()] = char;
+          result.map[src.toUpperCase()] = char;
         }
       }
 
@@ -290,7 +304,7 @@ class TextExtractor {
 
           for (let i = start; i <= end; i++) {
             const srcHex = i.toString(16).toUpperCase().padStart(entry[1].length, '0');
-            map[srcHex] = String.fromCodePoint(dstStart++);
+            result.map[srcHex] = String.fromCodePoint(dstStart++);
           }
         }
       }
@@ -298,11 +312,13 @@ class TextExtractor {
       console.error('[TextExtractor] Error parsing ToUnicode CMap:', error.message);
     }
 
-    return map;
+    return result;
   }
 
   /**
    * Build layer map from Properties
+   * Properties maps MC IDs to OCMD (Optional Content Membership Dictionary) objects
+   * OCMD contains an OCGs array - we use the first OCG's name as the layer
    */
   buildLayerMap(pdfDoc, resources) {
     const layerMap = {};
@@ -313,9 +329,23 @@ class TextExtractor {
       if (!properties) return layerMap;
 
       const entries = properties instanceof PDFDict ? Array.from(properties.entries()) : [];
-      for (const [mcRef, ocgRef] of entries) {
+      for (const [mcRef, ocmdRef] of entries) {
         const mcName = mcRef.toString().replace('/', '');
-        const ocgDict = pdfDoc.context.lookup(ocgRef);
+        const ocmdDict = pdfDoc.context.lookup(ocmdRef);
+        if (!(ocmdDict instanceof PDFDict)) continue;
+
+        // OCMD has OCGs array or single OCG reference
+        const ocgs = ocmdDict.get(PDFName.of('OCGs'));
+        let ocgDict = null;
+
+        if (ocgs instanceof PDFArray && ocgs.size() > 0) {
+          // Array of OCGs - use the first one (most specific layer)
+          ocgDict = pdfDoc.context.lookup(ocgs.get(0));
+        } else if (ocgs) {
+          // Single OCG reference
+          ocgDict = pdfDoc.context.lookup(ocgs);
+        }
+
         if (ocgDict instanceof PDFDict) {
           const name = ocgDict.get(PDFName.of('Name'));
           if (name) {
@@ -525,22 +555,40 @@ class TextExtractor {
 
     const fontInfo = this.fontDetails[fontRef];
     const unicodeMap = fontInfo?.unicodeMap;
+    // Hex chars per character: bytesPerChar * 2 (e.g., 2 bytes = 4 hex chars)
+    const hexCharsPerChar = (fontInfo?.bytesPerChar || 1) * 2;
 
     // Hex string
     if (pdfString.startsWith('<') && pdfString.endsWith('>')) {
       const hexContent = pdfString.slice(1, -1).replace(/\s/g, '');
       let result = '';
 
-      if (unicodeMap) {
-        // Use ToUnicode mapping
-        // Check if it's 2-byte or 4-byte encoding
-        const bytesPerChar = hexContent.length <= 4 ? hexContent.length : 4;
-        for (let i = 0; i < hexContent.length; i += bytesPerChar) {
-          const code = hexContent.substr(i, bytesPerChar).toUpperCase();
-          result += unicodeMap[code] || '?';
+      if (unicodeMap && Object.keys(unicodeMap).length > 0) {
+        // Use ToUnicode mapping with detected byte width
+        for (let i = 0; i < hexContent.length; i += hexCharsPerChar) {
+          const code = hexContent.substr(i, hexCharsPerChar).toUpperCase();
+          if (unicodeMap[code]) {
+            result += unicodeMap[code];
+          } else {
+            // Fallback: try interpreting as direct Unicode code point
+            const codePoint = parseInt(code, 16);
+            if (codePoint > 0 && codePoint < 0xFFFF) {
+              result += String.fromCodePoint(codePoint);
+            } else {
+              result += '?';
+            }
+          }
+        }
+      } else if (fontInfo?.isType0) {
+        // Type0 font without ToUnicode map - try direct 2-byte Unicode interpretation
+        for (let i = 0; i < hexContent.length; i += 4) {
+          const codePoint = parseInt(hexContent.substr(i, 4), 16);
+          if (codePoint > 0 && codePoint < 0xFFFF) {
+            result += String.fromCodePoint(codePoint);
+          }
         }
       } else {
-        // Direct byte to char conversion
+        // Simple font - direct byte to char conversion
         for (let i = 0; i < hexContent.length; i += 2) {
           const byte = parseInt(hexContent.substr(i, 2), 16);
           result += String.fromCharCode(byte);

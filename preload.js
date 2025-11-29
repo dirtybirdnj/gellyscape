@@ -15,9 +15,6 @@ window.electronAPI = {
   generateSVG: (options) => ipcRenderer.invoke('svg:generate', options),
   exportSVG: (options) => ipcRenderer.invoke('svg:export', options),
 
-  // Legacy PDF processing (sends full data - deprecated)
-  processPDF: (filePath) => ipcRenderer.invoke('pdf:process', filePath),
-
   // Get debug info about layers and bounds
   getDebugInfo: () => ipcRenderer.invoke('pdf:getDebugInfo'),
 
@@ -53,5 +50,9 @@ window.electronAPI = {
   addRecentFile: (filePath, metadata) => ipcRenderer.invoke('files:addRecent', { filePath, metadata }),
 
   // Text extraction
-  extractText: (filePath) => ipcRenderer.invoke('pdf:extractText', filePath)
+  extractText: (filePath) => ipcRenderer.invoke('pdf:extractText', filePath),
+
+  // Path inspection
+  getLayerPaths: (layerName) => ipcRenderer.invoke('pdf:getLayerPaths', layerName),
+  getPathGeometry: (layerName, pathIndex) => ipcRenderer.invoke('pdf:getPathGeometry', { layerName, pathIndex })
 };

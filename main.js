@@ -145,103 +145,38 @@ ipcMain.handle('dialog:openFile', async () => {
   return filePaths[0];
 });
 
-// Process PDF file
-ipcMain.handle('pdf:process', async (event, filePath) => {
-  try {
-    // Validate file extension
-    const fileExtension = path.extname(filePath).toLowerCase();
-    if (fileExtension !== '.pdf') {
-      return {
-        success: false,
-        error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported. Please select a PDF file to process.`
-      };
-    }
-
-    // Report initial progress
-    event.sender.send('pdf:progress', {
-      operation: 'Validating File',
-      detail: 'Reading PDF file...'
-    });
-
-    // Read the file
-    const fileBuffer = await fs.readFile(filePath);
-
-    // Verify PDF magic bytes (PDF files start with "%PDF-")
-    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
-    if (fileBuffer.length < pdfMagicBytes.length ||
-        !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
-      return {
-        success: false,
-        error: `File does not appear to be a valid PDF. The file may be corrupted or is not a PDF file.`
-      };
-    }
-
-    // Process the PDF
-    const processor = new PDFProcessor(fileBuffer);
-
-    // Set up progress callback to forward progress to renderer
-    processor.setProgressCallback((progress) => {
-      event.sender.send('pdf:progress', progress);
-    });
-
-    const result = await processor.process();
-
-    // Send completion progress
-    event.sender.send('pdf:progress', {
-      operation: 'Complete',
-      detail: 'Processing finished successfully!'
-    });
-
-    // Track this file in recent files
-    const pathCount = result.contentPaths?.paths?.length || 0;
-    await addRecentFile(filePath, {
-      ...result.metadata,
-      pathCount
-    });
-
-    return {
-      success: true,
-      data: result
-    };
-  } catch (error) {
-    console.error('Error processing PDF:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+// Helper: Validate PDF file and return buffer if valid
+async function validatePDFFile(filePath) {
+  const fileExtension = path.extname(filePath).toLowerCase();
+  if (fileExtension !== '.pdf') {
+    return { error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported.` };
   }
-});
 
-// Process PDF and keep paths in main process (lightweight version for renderer)
+  const fileBuffer = await fs.readFile(filePath);
+  const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
+  if (fileBuffer.length < pdfMagicBytes.length ||
+      !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
+    return { error: 'File does not appear to be a valid PDF.' };
+  }
+
+  return { buffer: fileBuffer };
+}
+
+// Process PDF and keep paths in main process
 // Only sends layer metadata to renderer, not the full path data
 ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
   try {
-    const fileExtension = path.extname(filePath).toLowerCase();
-    if (fileExtension !== '.pdf') {
-      return {
-        success: false,
-        error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported.`
-      };
-    }
-
     event.sender.send('pdf:progress', {
       operation: 'Loading',
       detail: 'Reading PDF file...'
     });
 
-    const fileBuffer = await fs.readFile(filePath);
-
-    // Verify PDF magic bytes
-    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
-    if (fileBuffer.length < pdfMagicBytes.length ||
-        !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
-      return {
-        success: false,
-        error: 'File does not appear to be a valid PDF.'
-      };
+    const validation = await validatePDFFile(filePath);
+    if (validation.error) {
+      return { success: false, error: validation.error };
     }
 
-    const processor = new PDFProcessor(fileBuffer);
+    const processor = new PDFProcessor(validation.buffer);
     processor.setProgressCallback((progress) => {
       event.sender.send('pdf:progress', progress);
     });
@@ -304,11 +239,7 @@ ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
 // Generate SVG from stored paths (runs in main process)
 ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, uiOptions }) => {
   try {
-    console.log('svg:generate IPC called');
-    console.log('Enabled layers received:', enabledLayers?.length || 0);
-
     if (!currentSVGGenerator) {
-      console.log('No currentSVGGenerator available!');
       return {
         success: false,
         error: 'No PDF loaded. Please load a PDF first.'
@@ -321,9 +252,7 @@ ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, u
       showDocBorder: uiOptions?.showDocBorder !== false // Default true
     };
 
-    console.log('Calling currentSVGGenerator.generate...');
     const result = currentSVGGenerator.generate(enabledLayers, bounds, uiOpts);
-    console.log('SVG generation result - pathCount:', result.stats?.pathCount, 'layerCount:', result.stats?.layerCount);
 
     return {
       success: true,
@@ -432,6 +361,109 @@ ipcMain.handle('pdf:extractText', async (event, filePath) => {
       success: false,
       error: error.message
     };
+  }
+});
+
+// Get paths for a specific layer (for path inspection UI)
+ipcMain.handle('pdf:getLayerPaths', async (event, layerName) => {
+  try {
+    if (!currentSVGGenerator) {
+      return { paths: [], message: 'No PDF loaded' };
+    }
+
+    // Parse layer name to extract base layer and color
+    const [baseName, colorStr] = layerName.includes('::')
+      ? layerName.split('::')
+      : [layerName, null];
+
+    // Get paths matching this layer
+    const paths = currentSVGGenerator.paths || [];
+    const matchingPaths = [];
+
+    paths.forEach((path, index) => {
+      const pathLayer = path.layer || 'Unassigned';
+      if (pathLayer !== baseName) return;
+
+      // Check color match if specified
+      if (colorStr) {
+        let pathColor = null;
+        if (path.stroke && path.strokeColor) {
+          pathColor = `rgb(${path.strokeColor.join(',')})`;
+        } else if (path.fill && path.fillColor) {
+          pathColor = `rgb(${path.fillColor.join(',')})`;
+        }
+        if (pathColor !== colorStr) return;
+      }
+
+      // Calculate bounds for this path
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      if (path.operations) {
+        for (const op of path.operations) {
+          if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
+          if (op.y !== undefined) { minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y); }
+        }
+      }
+
+      matchingPaths.push({
+        index,
+        operationCount: path.operations?.length || 0,
+        hasStroke: !!path.stroke,
+        hasFill: !!path.fill,
+        bounds: minX !== Infinity ? {
+          minX, minY, maxX, maxY,
+          width: maxX - minX,
+          height: maxY - minY
+        } : null
+      });
+    });
+
+    return { paths: matchingPaths, success: true };
+  } catch (error) {
+    console.error('Error getting layer paths:', error);
+    return { paths: [], error: error.message, success: false };
+  }
+});
+
+// Get geometry for a specific path (for highlighting)
+ipcMain.handle('pdf:getPathGeometry', async (event, { layerName, pathIndex }) => {
+  try {
+    if (!currentSVGGenerator) {
+      return null;
+    }
+
+    const paths = currentSVGGenerator.paths || [];
+    const path = paths[pathIndex];
+
+    if (!path || !path.operations) {
+      return null;
+    }
+
+    // Build SVG path data
+    let pathData = '';
+    for (const op of path.operations) {
+      switch (op.type) {
+        case 'M':
+          pathData += `M${op.x} ${op.y} `;
+          break;
+        case 'L':
+          pathData += `L${op.x} ${op.y} `;
+          break;
+        case 'C':
+          pathData += `C${op.x1} ${op.y1} ${op.x2} ${op.y2} ${op.x} ${op.y} `;
+          break;
+        case 'Q':
+          pathData += `Q${op.x1} ${op.y1} ${op.x} ${op.y} `;
+          break;
+        case 'Z':
+          pathData += 'Z ';
+          break;
+      }
+    }
+
+    return { pathData: pathData.trim() };
+  } catch (error) {
+    console.error('Error getting path geometry:', error);
+    return null;
   }
 });
 
@@ -597,7 +629,6 @@ ipcMain.handle('file:showInFinder', async (event, filePath) => {
 // Show save dialog
 ipcMain.handle('dialog:save', async (event, options) => {
   try {
-    const { dialog } = require('electron');
     const result = await dialog.showSaveDialog({
       title: options.title || 'Save File',
       defaultPath: options.defaultPath,
@@ -613,15 +644,11 @@ ipcMain.handle('dialog:save', async (event, options) => {
 // Write file
 ipcMain.handle('file:write', async (event, { filePath, content }) => {
   try {
-    const fs = require('fs');
-    fs.writeFileSync(filePath, content, 'utf8');
+    await fs.writeFile(filePath, content, 'utf8');
     return { success: true };
   } catch (error) {
     console.error('Error writing file:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    return { success: false, error: error.message };
   }
 });
 
@@ -636,8 +663,6 @@ ipcMain.handle('vpype:crop', async (event, data) => {
     const w = cropWidth.toFixed(2);
     const h = cropHeight.toFixed(2);
 
-    console.log('Processing SVG with per-layer cropping');
-    console.log('Crop area:', { x, y, w, h });
 
     // Parse the SVG to extract layers
     const layerRegex = /<g id="layer-([^"]+)" data-layer="([^"]+)">([\s\S]*?)<\/g>/g;
@@ -652,12 +677,6 @@ ipcMain.handle('vpype:crop', async (event, data) => {
       });
     }
 
-    console.log(`Found ${layers.length} layers to process`);
-
-    // Extract SVG header (everything before first layer)
-    const headerMatch = svgContent.match(/([\s\S]*?)<g id="layer-/);
-    const svgHeader = headerMatch ? headerMatch[1] : '';
-
     // Extract viewBox for creating individual layer SVGs
     const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/);
     const viewBox = viewBoxMatch ? viewBoxMatch[1] : '0 0 800 600';
@@ -671,7 +690,6 @@ ipcMain.handle('vpype:crop', async (event, data) => {
 
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
-      console.log(`Processing layer ${i + 1}/${layers.length}: ${layer.name}`);
 
       // Create a temporary SVG for this layer only
       const layerSvg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -697,19 +715,13 @@ ${layer.content}
           maxBuffer: 10 * 1024 * 1024
         });
 
-        if (stderr) {
-          console.log(`vpype stderr for layer "${layer.name}":`, stderr);
-        }
 
         // Read the processed layer
         const processedSvg = await fs.readFile(layerOutputPath, 'utf8');
 
-        console.log(`Processed SVG for "${layer.name}" length:`, processedSvg.length);
-
         // Extract the paths from the processed SVG (vpype outputs to layer 1)
         const pathsMatch = processedSvg.match(/<g[^>]*id="1"[^>]*>([\s\S]*?)<\/g>/);
         if (pathsMatch) {
-          console.log(`✓ Found paths for layer "${layer.name}", content length:`, pathsMatch[1].length);
 
           // Convert layer name: rgb(r,g,b) to hex and clean special chars for the SVG
           let displayName = layer.name;
@@ -728,9 +740,6 @@ ${layer.content}
             id: layer.id,
             content: pathsMatch[1]
           });
-        } else {
-          console.log(`✗ No paths found for layer "${layer.name}"`);
-          console.log(`SVG preview (first 1500 chars):`, processedSvg.substring(0, 1500));
         }
 
         // Clean up layer temp files
@@ -742,7 +751,6 @@ ${layer.content}
       }
     }
 
-    console.log(`Successfully processed ${processedLayers.length} layers`);
 
     // Reconstruct the final SVG with all processed layers
     let finalSvg = `<?xml version="1.0" encoding="UTF-8"?>

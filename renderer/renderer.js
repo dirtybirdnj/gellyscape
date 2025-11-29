@@ -218,6 +218,20 @@ const exportTextSvgBtn = document.getElementById('exportTextSvgBtn');
 // Text extraction state
 let extractedTextData = null;
 
+// Stats indicator elements
+const statsIndicator = document.getElementById('statsIndicator');
+const statsPathCount = document.getElementById('statsPathCount');
+const statsLayerCount = document.getElementById('statsLayerCount');
+const statsMemory = document.getElementById('statsMemory');
+
+// Stats tracking state
+let currentStats = {
+  totalPaths: 0,
+  enabledLayers: 0,
+  totalLayers: 0,
+  estimatedMemoryKB: 0
+};
+
 // Crop mode elements
 const cropModeBtn = document.getElementById('cropModeBtn');
 const cropModeLabel = document.getElementById('cropModeLabel');
@@ -472,8 +486,12 @@ function switchTab(tabName) {
 // Add click handlers to tab buttons
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
-    const tabName = e.target.getAttribute('data-tab');
-    switchTab(tabName);
+    // Use currentTarget to get the button, not any inner child element
+    const button = e.currentTarget;
+    const tabName = button.getAttribute('data-tab');
+    if (tabName) {
+      switchTab(tabName);
+    }
   });
 });
 
@@ -486,6 +504,15 @@ if (window.electronAPI && window.electronAPI.onPDFProgress) {
     // Update the status display with the current operation
     const statusMessage = `${progress.operation}: ${progress.detail}`;
     showStatusWithProgress(statusMessage, 'info');
+
+    // Update stats indicator with progress data if available
+    if (progress.stats) {
+      updateStatsIndicator({
+        processing: true,
+        pathCount: progress.stats.pathCount || 0,
+        memoryKB: progress.stats.memoryKB || estimateMemoryUsage(progress.stats.pathCount || 0, progress.stats.layerCount || 0)
+      });
+    }
   });
 }
 
@@ -622,6 +649,9 @@ async function loadPDFFile(filePath) {
 
   showStatusWithProgress(`Processing ${fileName}...`, 'info');
 
+  // Show stats indicator in processing mode
+  updateStatsIndicator({ processing: true, pathCount: 0, memoryKB: 0 });
+
   try {
     // Process PDF in main process (keeps paths there, returns lightweight data)
     console.time('PDF:BackendProcess');
@@ -632,11 +662,20 @@ async function loadPDFFile(filePath) {
       showStatus(`Error: ${result.error}`, 'error');
       uploadBtn.disabled = false;
       document.body.style.cursor = 'default';
+      updateStatsIndicator({ processing: false });
       return;
     }
 
     // Store lightweight data (no path arrays - those stay in main process)
     currentPDFData = result.data;
+
+    // Update stats with final values
+    currentStats.totalPaths = result.data.pathCount || 0;
+    currentStats.totalLayers = result.data.layerInfo?.length || 0;
+    currentStats.estimatedMemoryKB = estimateMemoryUsage(
+      currentStats.totalPaths,
+      currentStats.totalLayers
+    );
 
     // Display results using lightweight data
     displayResultsLightweight(result.data);
@@ -649,6 +688,9 @@ async function loadPDFFile(filePath) {
       recentFilesSection.style.display = 'none';
     }
 
+    // Update stats indicator with final data
+    updateStatsIndicator({ processing: false });
+
     hideStatus();
     document.body.style.cursor = 'default';
 
@@ -657,6 +699,7 @@ async function loadPDFFile(filePath) {
     showStatus(`Error: ${processingError.message}`, 'error');
     uploadBtn.disabled = false;
     document.body.style.cursor = 'default';
+    updateStatsIndicator({ processing: false });
   }
 }
 
@@ -749,16 +792,18 @@ function extractLayersFromLightweight(layerInfo) {
     return;
   }
 
-  // layerInfo is array of { name, baseLayer, color, pathCount }
+  // layerInfo is array of { name, baseLayer, color, pathCount, renderType }
   window.layerColorInfo = {};
   window.layerBaseNames = {};
   window.layerPathCounts = {};
+  window.layerRenderType = {};
 
   layerInfo.forEach(layer => {
     allLayers.push(layer.name);
     window.layerBaseNames[layer.name] = layer.baseLayer;
     window.layerColorInfo[layer.name] = [layer.color];
     window.layerPathCounts[layer.name] = layer.pathCount;
+    window.layerRenderType[layer.name] = layer.renderType || 'fill';
 
     // Enable vector layers by default, but NOT overlay layers
     if (!isOverlayLayer(layer.name)) {
@@ -774,9 +819,6 @@ function extractLayersFromLightweight(layerInfo) {
 
 // Generate preview from backend
 async function showLightweightPreview() {
-  console.log('showLightweightPreview called');
-  console.log('enabledLayers count:', enabledLayers.size);
-  console.log('First 5 enabledLayers:', Array.from(enabledLayers).slice(0, 5));
 
   // Show loading gear in toolbar (no jarring white overlay)
   showLoadingGear();
@@ -785,13 +827,11 @@ async function showLightweightPreview() {
     // Request SVG from backend
     // Don't pass bounds - let SVG generator calculate from actual path data
     const layersArray = Array.from(enabledLayers);
-    console.log('Sending to backend:', layersArray.length, 'layers');
     const result = await window.electronAPI.generateSVG({
       enabledLayers: layersArray,
       bounds: null, // Let backend calculate bounds from paths
       options: { whiteBackground: false }
     });
-    console.log('Backend response:', result.success, 'pathCount:', result.stats?.pathCount);
 
     if (result.success && result.svg) {
       // Parse SVG and modify for preview
@@ -931,11 +971,6 @@ function extractLayersFromData(data) {
       }
     });
 
-    console.log('DEBUG extractLayersFromData:');
-    console.log('  Layer counts:', debugLayerCounts);
-    console.log('  Paths with no color:', debugNoColor);
-    console.log('  Total sublayers created:', layerColorSublayers.size);
-    console.log('  Sublayers:', Array.from(layerColorSublayers).slice(0, 20));
 
     // Add text layers from textObjectsByLayer
     if (data.contentPaths && data.contentPaths.textObjectsByLayer) {
@@ -983,8 +1018,6 @@ function extractLayersFromData(data) {
     });
   }
 
-  console.log('Extracted color sublayers:', allLayers);
-  console.log('Layer colors:', window.layerColorInfo);
 }
 
 function updateTabCounts() {
@@ -1192,11 +1225,8 @@ function createLayerControlItem(layerName) {
   checkbox.id = `layer-${safeId}`;
   checkbox.checked = enabledLayers.has(layerName);
 
-  // DEBUG: Log checkbox creation
-  console.log(`Creating checkbox for layer: "${layerName}" with ID: "layer-${safeId}"`);
 
   checkbox.addEventListener('change', () => {
-    console.log(`Checkbox changed for: "${layerName}" (checked: ${checkbox.checked})`);
     if (checkbox.checked) {
       enabledLayers.add(layerName);
     } else {
@@ -1205,6 +1235,7 @@ function createLayerControlItem(layerName) {
     updateTabCounts();
     generateMapPreview();
     updateExportLayersList();
+    updateStatsIndicator(); // Update layer count in stats
   });
 
   const label = document.createElement('label');
@@ -1263,9 +1294,179 @@ function createLayerControlItem(layerName) {
     checkboxContainer.appendChild(swatchContainer);
   }
 
+  // Add expand button for layer details
+  const expandBtn = document.createElement('span');
+  expandBtn.className = 'layer-expand-btn';
+  expandBtn.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; margin-left: 4px; flex-shrink: 0; cursor: pointer; width: 14px; height: 14px; border-radius: 2px;';
+  expandBtn.title = 'Expand layer details';
+  expandBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" style="opacity: 0.5;">
+    <line x1="5" y1="2" x2="5" y2="8" stroke="#666" stroke-width="1.5"/>
+    <line x1="2" y1="5" x2="8" y2="5" stroke="#666" stroke-width="1.5"/>
+  </svg>`;
+  expandBtn.dataset.layerName = layerName;
+  expandBtn.dataset.expanded = 'false';
+
+  expandBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleLayerExpand(layerName, expandBtn, layerItem);
+  });
+
+  checkboxContainer.appendChild(expandBtn);
+
   layerItem.appendChild(checkboxContainer);
 
   return layerItem;
+}
+
+async function toggleLayerExpand(layerName, expandBtn, layerItem) {
+  const isExpanded = expandBtn.dataset.expanded === 'true';
+
+  if (isExpanded) {
+    // Collapse: remove details panel
+    const detailsPanel = layerItem.querySelector('.layer-details-panel');
+    if (detailsPanel) {
+      detailsPanel.remove();
+    }
+    // Clear any highlights
+    clearPathHighlight();
+    expandBtn.dataset.expanded = 'false';
+    expandBtn.title = 'Expand to see paths';
+    // Change to plus icon
+    expandBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10">
+      <line x1="5" y1="2" x2="5" y2="8" stroke="#666" stroke-width="1.5"/>
+      <line x1="2" y1="5" x2="8" y2="5" stroke="#666" stroke-width="1.5"/>
+    </svg>`;
+  } else {
+    // Expand: create details panel with path list
+    const detailsPanel = document.createElement('div');
+    detailsPanel.className = 'layer-details-panel';
+    detailsPanel.style.cssText = 'margin-top: 6px; margin-left: 48px; padding: 8px; background: #f8f9ff; border-radius: 4px; border: 1px solid #e0e4ff; font-size: 0.75em; max-height: 200px; overflow-y: auto;';
+
+    // Get paths for this layer from backend
+    const [baseName, colorStr] = layerName.includes('::') ? layerName.split('::') : [layerName, null];
+
+    detailsPanel.innerHTML = '<div style="color: #666;">Loading paths...</div>';
+    layerItem.appendChild(detailsPanel);
+
+    // Request path details from backend
+    try {
+      const pathDetails = await window.electronAPI.getLayerPaths(layerName);
+
+      if (!pathDetails) {
+        detailsPanel.innerHTML = '<div style="color: #999;">No response from backend</div>';
+        expandBtn.dataset.expanded = 'true';
+        return;
+      }
+
+      if (pathDetails.error) {
+        detailsPanel.innerHTML = `<div style="color: #dc3545;">Error: ${pathDetails.error}</div>`;
+        expandBtn.dataset.expanded = 'true';
+        return;
+      }
+
+      if (pathDetails.paths && pathDetails.paths.length > 0) {
+        let listHtml = `<div style="margin-bottom: 6px; font-weight: 600; color: #667eea;">${pathDetails.paths.length} paths</div>`;
+        listHtml += '<div class="path-list" style="display: flex; flex-direction: column; gap: 2px;">';
+
+        // Show paths (limit to first 100 for performance)
+        const displayPaths = pathDetails.paths.slice(0, 100);
+        displayPaths.forEach((path, idx) => {
+          const opCount = path.operationCount || 0;
+          const pathType = path.hasStroke ? 'stroke' : 'fill';
+          const bounds = path.bounds;
+          const sizeInfo = bounds ? `${Math.round(bounds.width)}x${Math.round(bounds.height)}` : '';
+
+          listHtml += `
+            <div class="path-item" data-path-index="${path.index}" data-layer="${layerName}"
+                 style="display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; background: white; border-radius: 3px; border: 1px solid #e0e4ff; cursor: pointer;"
+                 onmouseenter="this.style.background='#e8ebff'" onmouseleave="this.style.background='white'">
+              <span style="color: #333;">Path ${idx + 1}</span>
+              <span style="color: #888; font-size: 0.9em;">${opCount} ops ${sizeInfo ? '• ' + sizeInfo : ''}</span>
+            </div>
+          `;
+        });
+
+        if (pathDetails.paths.length > 100) {
+          listHtml += `<div style="color: #999; font-style: italic; padding: 4px;">... and ${pathDetails.paths.length - 100} more</div>`;
+        }
+
+        listHtml += '</div>';
+        detailsPanel.innerHTML = listHtml;
+
+        // Add click handlers for path highlighting
+        detailsPanel.querySelectorAll('.path-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const pathIndex = parseInt(item.dataset.pathIndex);
+            highlightPath(layerName, pathIndex);
+            // Visual feedback
+            detailsPanel.querySelectorAll('.path-item').forEach(p => p.style.borderColor = '#e0e4ff');
+            item.style.borderColor = '#667eea';
+          });
+        });
+      } else {
+        const msg = pathDetails.message || 'No paths found for this layer';
+        detailsPanel.innerHTML = `<div style="color: #999;">${msg}</div>`;
+      }
+    } catch (error) {
+      console.error('Error loading paths:', error);
+      detailsPanel.innerHTML = `<div style="color: #dc3545;">Error: ${error.message || 'Unknown error'}</div>`;
+    }
+
+    expandBtn.dataset.expanded = 'true';
+    expandBtn.title = 'Collapse path list';
+    // Change to minus icon
+    expandBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10">
+      <line x1="2" y1="5" x2="8" y2="5" stroke="#666" stroke-width="1.5"/>
+    </svg>`;
+  }
+}
+
+// Highlight a specific path on the map preview
+function highlightPath(layerName, pathIndex) {
+  // Add highlight overlay to the SVG preview
+  const svgContainer = mapPreviewDiv.querySelector('svg');
+  if (!svgContainer) return;
+
+  // Remove existing highlights
+  clearPathHighlight();
+
+  // Request the path geometry from backend and draw highlight
+  window.electronAPI.getPathGeometry(layerName, pathIndex).then(geometry => {
+    if (!geometry || !geometry.pathData) return;
+
+    // Create highlight group
+    const highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    highlightGroup.id = 'path-highlight';
+    highlightGroup.setAttribute('class', 'highlight-overlay');
+
+    // Draw the highlighted path with a bright color and animation
+    const highlightPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    highlightPath.setAttribute('d', geometry.pathData);
+    highlightPath.setAttribute('fill', 'none');
+    highlightPath.setAttribute('stroke', '#ff0066');
+    highlightPath.setAttribute('stroke-width', '4');
+    highlightPath.setAttribute('stroke-linecap', 'round');
+    highlightPath.style.animation = 'pulse-highlight 1s ease-in-out infinite';
+
+    // Add a second path for better visibility (white outline)
+    const outlinePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    outlinePath.setAttribute('d', geometry.pathData);
+    outlinePath.setAttribute('fill', 'none');
+    outlinePath.setAttribute('stroke', 'white');
+    outlinePath.setAttribute('stroke-width', '6');
+    outlinePath.setAttribute('stroke-linecap', 'round');
+
+    highlightGroup.appendChild(outlinePath);
+    highlightGroup.appendChild(highlightPath);
+    svgContainer.appendChild(highlightGroup);
+  }).catch(err => {
+    console.error('Error highlighting path:', err);
+  });
+}
+
+function clearPathHighlight() {
+  const existing = document.getElementById('path-highlight');
+  if (existing) existing.remove();
 }
 
 function selectAllLayers() {
@@ -1286,6 +1487,7 @@ function selectAllLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function deselectAllLayers() {
@@ -1306,6 +1508,7 @@ function deselectAllLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function selectAllTextLayers() {
@@ -1326,6 +1529,7 @@ function selectAllTextLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function deselectAllTextLayers() {
@@ -1346,6 +1550,7 @@ function deselectAllTextLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function displayLayerDetails() {
@@ -1846,6 +2051,80 @@ function updateMapStats(statusMessage = null) {
   }
 
   mapStatsDiv.innerHTML = statsHTML;
+}
+
+// Update the toolbar stats indicator
+function updateStatsIndicator(options = {}) {
+  const { processing = false, pathCount = null, memoryKB = null } = options;
+
+  // Show/hide based on whether we have data
+  if (!currentPDFData && !processing) {
+    statsIndicator.style.display = 'none';
+    return;
+  }
+
+  statsIndicator.style.display = 'flex';
+
+  // Toggle processing animation
+  if (processing) {
+    statsIndicator.classList.add('processing');
+  } else {
+    statsIndicator.classList.remove('processing');
+  }
+
+  // Update path count
+  const paths = pathCount !== null ? pathCount : currentStats.totalPaths;
+  statsPathCount.textContent = paths.toLocaleString();
+
+  // Update layer count
+  const enabledCount = enabledLayers.size;
+  const totalCount = allLayers.length;
+  statsLayerCount.textContent = `${enabledCount}/${totalCount}`;
+  currentStats.enabledLayers = enabledCount;
+  currentStats.totalLayers = totalCount;
+
+  // Update memory estimate
+  const memory = memoryKB !== null ? memoryKB : currentStats.estimatedMemoryKB;
+  statsMemory.textContent = formatMemorySize(memory);
+
+  // Add warning classes for high memory usage
+  const memoryItem = statsMemory.parentElement;
+  memoryItem.classList.remove('warning', 'critical');
+  if (memory > 100000) { // > 100MB
+    memoryItem.classList.add('critical');
+  } else if (memory > 50000) { // > 50MB
+    memoryItem.classList.add('warning');
+  }
+
+  // Add warning for high path counts
+  const pathItem = statsPathCount.parentElement;
+  pathItem.classList.remove('warning', 'critical');
+  if (paths > 50000) {
+    pathItem.classList.add('critical');
+  } else if (paths > 20000) {
+    pathItem.classList.add('warning');
+  }
+}
+
+// Format memory size for display
+function formatMemorySize(kb) {
+  if (kb < 1024) {
+    return `${Math.round(kb)} KB`;
+  } else if (kb < 1024 * 1024) {
+    return `${(kb / 1024).toFixed(1)} MB`;
+  } else {
+    return `${(kb / (1024 * 1024)).toFixed(1)} GB`;
+  }
+}
+
+// Estimate memory usage from path data
+function estimateMemoryUsage(pathCount, layerCount) {
+  // Rough estimate: each path averages ~200 bytes of data
+  // Plus overhead for layer structures
+  const pathMemory = pathCount * 0.2; // KB
+  const layerOverhead = layerCount * 2; // KB per layer
+  const baseOverhead = 100; // Base overhead in KB
+  return Math.round(pathMemory + layerOverhead + baseOverhead);
 }
 
 async function handleExportSVG() {
