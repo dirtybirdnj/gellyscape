@@ -875,6 +875,53 @@
     .layer-expand-btn:hover svg {
       opacity: 0.8 !important;
     }
+
+    /* Stats Indicator Styles */
+    .stats-indicator {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%);
+      border: 1px solid #e0e4ff;
+      border-radius: 6px;
+      font-size: 0.8em;
+      color: #555;
+    }
+
+    .stats-indicator-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .stats-indicator-item svg {
+      color: #667eea;
+      flex-shrink: 0;
+    }
+
+    .stats-indicator-item span {
+      font-weight: 600;
+      color: #333;
+    }
+
+    .stats-indicator-item.warning span {
+      color: #f59e0b;
+    }
+
+    .stats-indicator-item.critical span {
+      color: #ef4444;
+    }
+
+    .stats-indicator.processing {
+      animation: statsPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes statsPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
   </style>
 </head>
 <body>
@@ -889,6 +936,39 @@
         <button class="tab-btn" data-tab="metadata">Metadata</button>
       </div>
       <div class="toolbar-right">
+        <!-- Stats Indicator -->
+        <div id="statsIndicator" class="stats-indicator" style="display: none;">
+          <div class="stats-indicator-item" title="Total paths in document">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3v18h18"></path>
+              <path d="M7 16l4-8 4 4 5-9"></path>
+            </svg>
+            <span id="statsPathCount">0</span>
+          </div>
+          <div class="stats-indicator-item" title="Enabled layers">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+            <span id="statsLayerCount">0/0</span>
+          </div>
+          <div class="stats-indicator-item" title="Estimated memory usage">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+              <rect x="9" y="9" width="6" height="6"></rect>
+              <line x1="9" y1="1" x2="9" y2="4"></line>
+              <line x1="15" y1="1" x2="15" y2="4"></line>
+              <line x1="9" y1="20" x2="9" y2="23"></line>
+              <line x1="15" y1="20" x2="15" y2="23"></line>
+              <line x1="20" y1="9" x2="23" y2="9"></line>
+              <line x1="20" y1="14" x2="23" y2="14"></line>
+              <line x1="1" y1="9" x2="4" y2="9"></line>
+              <line x1="1" y1="14" x2="4" y2="14"></line>
+            </svg>
+            <span id="statsMemory">0 KB</span>
+          </div>
+        </div>
         <div id="fileInfo" class="file-info" style="display: none;">
           <div id="fileName" class="file-info-name"></div>
           <div id="fileSize" class="file-info-size"></div>

@@ -218,6 +218,20 @@ const exportTextSvgBtn = document.getElementById('exportTextSvgBtn');
 // Text extraction state
 let extractedTextData = null;
 
+// Stats indicator elements
+const statsIndicator = document.getElementById('statsIndicator');
+const statsPathCount = document.getElementById('statsPathCount');
+const statsLayerCount = document.getElementById('statsLayerCount');
+const statsMemory = document.getElementById('statsMemory');
+
+// Stats tracking state
+let currentStats = {
+  totalPaths: 0,
+  enabledLayers: 0,
+  totalLayers: 0,
+  estimatedMemoryKB: 0
+};
+
 // Crop mode elements
 const cropModeBtn = document.getElementById('cropModeBtn');
 const cropModeLabel = document.getElementById('cropModeLabel');
@@ -490,6 +504,15 @@ if (window.electronAPI && window.electronAPI.onPDFProgress) {
     // Update the status display with the current operation
     const statusMessage = `${progress.operation}: ${progress.detail}`;
     showStatusWithProgress(statusMessage, 'info');
+
+    // Update stats indicator with progress data if available
+    if (progress.stats) {
+      updateStatsIndicator({
+        processing: true,
+        pathCount: progress.stats.pathCount || 0,
+        memoryKB: progress.stats.memoryKB || estimateMemoryUsage(progress.stats.pathCount || 0, progress.stats.layerCount || 0)
+      });
+    }
   });
 }
 
@@ -626,6 +649,9 @@ async function loadPDFFile(filePath) {
 
   showStatusWithProgress(`Processing ${fileName}...`, 'info');
 
+  // Show stats indicator in processing mode
+  updateStatsIndicator({ processing: true, pathCount: 0, memoryKB: 0 });
+
   try {
     // Process PDF in main process (keeps paths there, returns lightweight data)
     console.time('PDF:BackendProcess');
@@ -636,11 +662,20 @@ async function loadPDFFile(filePath) {
       showStatus(`Error: ${result.error}`, 'error');
       uploadBtn.disabled = false;
       document.body.style.cursor = 'default';
+      updateStatsIndicator({ processing: false });
       return;
     }
 
     // Store lightweight data (no path arrays - those stay in main process)
     currentPDFData = result.data;
+
+    // Update stats with final values
+    currentStats.totalPaths = result.data.pathCount || 0;
+    currentStats.totalLayers = result.data.layerInfo?.length || 0;
+    currentStats.estimatedMemoryKB = estimateMemoryUsage(
+      currentStats.totalPaths,
+      currentStats.totalLayers
+    );
 
     // Display results using lightweight data
     displayResultsLightweight(result.data);
@@ -653,6 +688,9 @@ async function loadPDFFile(filePath) {
       recentFilesSection.style.display = 'none';
     }
 
+    // Update stats indicator with final data
+    updateStatsIndicator({ processing: false });
+
     hideStatus();
     document.body.style.cursor = 'default';
 
@@ -661,6 +699,7 @@ async function loadPDFFile(filePath) {
     showStatus(`Error: ${processingError.message}`, 'error');
     uploadBtn.disabled = false;
     document.body.style.cursor = 'default';
+    updateStatsIndicator({ processing: false });
   }
 }
 
@@ -1196,6 +1235,7 @@ function createLayerControlItem(layerName) {
     updateTabCounts();
     generateMapPreview();
     updateExportLayersList();
+    updateStatsIndicator(); // Update layer count in stats
   });
 
   const label = document.createElement('label');
@@ -1447,6 +1487,7 @@ function selectAllLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function deselectAllLayers() {
@@ -1467,6 +1508,7 @@ function deselectAllLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function selectAllTextLayers() {
@@ -1487,6 +1529,7 @@ function selectAllTextLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function deselectAllTextLayers() {
@@ -1507,6 +1550,7 @@ function deselectAllTextLayers() {
   updateTabCounts();
   generateMapPreview();
   updateExportLayersList();
+  updateStatsIndicator();
 }
 
 function displayLayerDetails() {
@@ -2007,6 +2051,80 @@ function updateMapStats(statusMessage = null) {
   }
 
   mapStatsDiv.innerHTML = statsHTML;
+}
+
+// Update the toolbar stats indicator
+function updateStatsIndicator(options = {}) {
+  const { processing = false, pathCount = null, memoryKB = null } = options;
+
+  // Show/hide based on whether we have data
+  if (!currentPDFData && !processing) {
+    statsIndicator.style.display = 'none';
+    return;
+  }
+
+  statsIndicator.style.display = 'flex';
+
+  // Toggle processing animation
+  if (processing) {
+    statsIndicator.classList.add('processing');
+  } else {
+    statsIndicator.classList.remove('processing');
+  }
+
+  // Update path count
+  const paths = pathCount !== null ? pathCount : currentStats.totalPaths;
+  statsPathCount.textContent = paths.toLocaleString();
+
+  // Update layer count
+  const enabledCount = enabledLayers.size;
+  const totalCount = allLayers.length;
+  statsLayerCount.textContent = `${enabledCount}/${totalCount}`;
+  currentStats.enabledLayers = enabledCount;
+  currentStats.totalLayers = totalCount;
+
+  // Update memory estimate
+  const memory = memoryKB !== null ? memoryKB : currentStats.estimatedMemoryKB;
+  statsMemory.textContent = formatMemorySize(memory);
+
+  // Add warning classes for high memory usage
+  const memoryItem = statsMemory.parentElement;
+  memoryItem.classList.remove('warning', 'critical');
+  if (memory > 100000) { // > 100MB
+    memoryItem.classList.add('critical');
+  } else if (memory > 50000) { // > 50MB
+    memoryItem.classList.add('warning');
+  }
+
+  // Add warning for high path counts
+  const pathItem = statsPathCount.parentElement;
+  pathItem.classList.remove('warning', 'critical');
+  if (paths > 50000) {
+    pathItem.classList.add('critical');
+  } else if (paths > 20000) {
+    pathItem.classList.add('warning');
+  }
+}
+
+// Format memory size for display
+function formatMemorySize(kb) {
+  if (kb < 1024) {
+    return `${Math.round(kb)} KB`;
+  } else if (kb < 1024 * 1024) {
+    return `${(kb / 1024).toFixed(1)} MB`;
+  } else {
+    return `${(kb / (1024 * 1024)).toFixed(1)} GB`;
+  }
+}
+
+// Estimate memory usage from path data
+function estimateMemoryUsage(pathCount, layerCount) {
+  // Rough estimate: each path averages ~200 bytes of data
+  // Plus overhead for layer structures
+  const pathMemory = pathCount * 0.2; // KB
+  const layerOverhead = layerCount * 2; // KB per layer
+  const baseOverhead = 100; // Base overhead in KB
+  return Math.round(pathMemory + layerOverhead + baseOverhead);
 }
 
 async function handleExportSVG() {

@@ -30,12 +30,13 @@ class PDFProcessor {
     this.progressCallback = callback;
   }
 
-  reportProgress(operation, detail, progress = null) {
+  reportProgress(operation, detail, progress = null, stats = null) {
     if (this.progressCallback) {
       this.progressCallback({
         operation,
         detail,
-        progress
+        progress,
+        stats
       });
     }
   }
@@ -568,11 +569,12 @@ class PDFProcessor {
       for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
         this.debug(`--- Page ${pageIndex + 1}/${pages.length} ---`);
 
-        // Report progress (this is still sync - just a callback)
+        // Report progress with current stats (this is still sync - just a callback)
         this.reportProgress(
           'Processing Page Content',
           `Page ${pageIndex + 1} of ${pages.length}`,
-          { current: pageIndex + 1, total: pages.length }
+          { current: pageIndex + 1, total: pages.length },
+          { pathCount: allPaths.length, layerCount: Object.keys(this.layerNames || {}).length }
         );
 
         const page = pages[pageIndex];
@@ -699,7 +701,9 @@ class PDFProcessor {
 
       this.reportProgress(
         'Finalizing',
-        `Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects`
+        `Extracted ${allPaths.length} paths and ${allTextObjects.length} text objects`,
+        null,
+        { pathCount: allPaths.length, layerCount: Object.keys(this.layerNames || {}).length }
       );
 
       return {
