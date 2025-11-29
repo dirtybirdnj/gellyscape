@@ -2894,7 +2894,8 @@ async function populateVectorDebugPanel() {
 // function displayTextData(data) { ... }
 // Helper functions
 function showStatus(message, type) {
-  statusDiv.textContent = message;
+  // Use innerHTML with line breaks converted for multiline messages
+  statusDiv.innerHTML = message.replace(/\n/g, '<br>');
   statusDiv.className = `status ${type}`;
   statusDiv.style.display = 'block';
 }
