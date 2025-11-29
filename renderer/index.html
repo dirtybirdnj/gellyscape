@@ -1075,9 +1075,22 @@
               <!-- Upload placeholder shown when no PDF is loaded -->
               <div id="uploadPlaceholder" class="upload-placeholder">
                 <div class="upload-placeholder-content" style="max-width: 600px;">
-                  <h2 style="font-size: 1.3em; margin-bottom: 12px; color: #333;">Upload GeoPDF File</h2>
-                  <p style="margin: 8px 0 20px 0; color: #666; font-size: 0.95em; max-width: 400px;">Select a GeoPDF file to extract and visualize raster and vector layers</p>
-                  <button id="uploadBtn" class="upload-btn">Choose PDF File</button>
+                  <h2 style="font-size: 1.3em; margin-bottom: 12px; color: #333;">Upload USGS GeoPDF</h2>
+                  <p style="margin: 8px 0 16px 0; color: #666; font-size: 0.95em; max-width: 450px;">Extract vector layers from USGS topographic maps for laser cutting, CNC routing, or other fabrication projects.</p>
+
+                  <div style="background: #f0f7ff; border: 1px solid #b8d4f0; border-radius: 8px; padding: 16px; margin-bottom: 20px; text-align: left;">
+                    <div style="font-weight: 600; color: #1e5a8a; margin-bottom: 8px; font-size: 0.9em;">Supported Formats</div>
+                    <ul style="margin: 0; padding-left: 20px; color: #444; font-size: 0.85em; line-height: 1.6;">
+                      <li><strong>US Topo</strong> maps (7.5-minute, 1:24,000 scale)</li>
+                      <li><strong>100K</strong> and <strong>250K</strong> scale USGS maps</li>
+                      <li>GeoPDF files from <a href="https://apps.nationalmap.gov/downloader/" target="_blank" style="color: #667eea;">The National Map</a></li>
+                    </ul>
+                    <div style="margin-top: 10px; font-size: 0.8em; color: #666;">
+                      Download free USGS topo maps at <a href="https://apps.nationalmap.gov/downloader/" target="_blank" style="color: #667eea;">nationalmap.gov</a>
+                    </div>
+                  </div>
+
+                  <button id="uploadBtn" class="upload-btn">Choose GeoPDF File</button>
                   <div id="status" class="status"></div>
 
                   <!-- Recent Files Section -->
