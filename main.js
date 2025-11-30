@@ -183,6 +183,18 @@ ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
 
     const result = await processor.process();
 
+    // Validate that this is a GeoPDF with extractable layers
+    const isGeoPDF = result.metadata?.isGeoPDF || false;
+    const hasLayers = result.metadata?.layers?.length > 0;
+    const hasPaths = result.contentPaths?.paths?.length > 0;
+
+    if (!isGeoPDF && !hasLayers && !hasPaths) {
+      return {
+        success: false,
+        error: 'This PDF does not appear to be a USGS GeoPDF.\n\nGellyScape works with:\n• US Topo maps (7.5-minute, 1:24,000 scale)\n• 100K and 250K scale USGS maps\n• GeoPDF files from nationalmap.gov\n\nDownload free USGS topo maps at:\nhttps://apps.nationalmap.gov/downloader/'
+      };
+    }
+
     // Store paths in main process
     currentPDFPaths = result.contentPaths?.paths || [];
     currentPDFMetadata = result.metadata;
