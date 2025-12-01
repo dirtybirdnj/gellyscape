@@ -85,19 +85,22 @@ export const OVERLAY_LAYER_PATTERNS = [
   'Department of Defense',
   'Federal Administrated Lands',
   'Images',
+  'Text Shields',
   'Unassigned'
 ];
 
 /**
  * Specific color sublayers that should be treated as overlays
- * Format: { baseLayer: [colors] } - white shields only
+ * Format: { baseLayer: [colors] } - white and light gray shields
  */
 export const OVERLAY_COLOR_SUBLAYERS = {
-  'Hydrography': ['rgb(255,255,255)'],
-  'Road Features': ['rgb(255,255,255)'],
-  'Transportation': ['rgb(255,255,255)'],
-  'Terrain': ['rgb(255,255,255)'],
-  'Woodland': ['rgb(255,255,255)']
+  'Contours': ['rgb(255,255,255)', 'rgb(240,240,240)'],
+  'Hydrography': ['rgb(255,255,255)', 'rgb(240,240,240)'],
+  'Road Features': ['rgb(255,255,255)', 'rgb(240,240,240)'],
+  'Transportation': ['rgb(255,255,255)', 'rgb(240,240,240)'],
+  'Terrain': ['rgb(255,255,255)', 'rgb(240,240,240)'],
+  'Trails': ['rgb(255,255,255)', 'rgb(240,240,240)'],
+  'Woodland': ['rgb(255,255,255)', 'rgb(240,240,240)']
 };
 
 /**

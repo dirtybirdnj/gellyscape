@@ -677,6 +677,10 @@ class PDFProcessor {
 
       this.debug(`\nTotal paths extracted: ${allPaths.length}`);
 
+      // Assign unassigned paths to layers based on color heuristics
+      // USGS GeoPDFs often have paths drawn outside BDC/EMC layer markers
+      this.assignUnassignedPathsByColor(allPaths);
+
       // Group paths by page (single pass)
       const pathsByPage = {};
       for (let i = 0; i < allPaths.length; i++) {
@@ -904,6 +908,71 @@ class PDFProcessor {
       page: path.page,
       layer: path.layer // Include the layer name
     };
+  }
+
+  /**
+   * Assign unassigned paths to layers based on color heuristics,
+   * and move text shield paths to overlay category.
+   * USGS GeoPDFs often have paths drawn outside BDC/EMC layer markers,
+   * but their colors match the layer they belong to.
+   */
+  assignUnassignedPathsByColor(paths) {
+    let assigned = 0;
+    let shieldsMovedToOverlay = 0;
+
+    for (const path of paths) {
+      const color = path.strokeColor || path.fillColor;
+      if (!color) continue;
+
+      const [r, g, b] = color;
+
+      // First: Check for text shields (light gray/near-white fill paths)
+      // These are background shapes for text labels - move to overlay
+      // Typical shield colors: rgb(240,240,240), rgb(240,225,135)
+      if (r > 220 && g > 220 && b > 220) {
+        // Near-white - definitely a shield
+        path.layer = 'Text Shields';
+        path.isOverlay = true;
+        shieldsMovedToOverlay++;
+        continue;
+      }
+      if (r > 230 && g > 210 && b > 120 && b < 160) {
+        // Cream/buff colored shields
+        path.layer = 'Text Shields';
+        path.isOverlay = true;
+        shieldsMovedToOverlay++;
+        continue;
+      }
+
+      // Only process paths without layer assignment for the rest
+      if (path.layer) continue;
+
+      // Brown/tan colors -> Contours (USGS contour colors are typically brown/tan)
+      // Typical values: rgb(179,134,89), rgb(145,88,40), rgb(166,116,66)
+      if (r >= 130 && r <= 200 && g >= 70 && g <= 150 && b >= 30 && b <= 110) {
+        // Verify it's brownish (red > green > blue)
+        if (r > g && g > b) {
+          path.layer = 'Contours';
+          assigned++;
+          continue;
+        }
+      }
+
+      // Blue colors -> Hydrography
+      // Typical values: rgb(0,120,200), rgb(0,100,180)
+      if (b > 150 && b > r && b > g) {
+        path.layer = 'Hydrography';
+        assigned++;
+        continue;
+      }
+    }
+
+    if (assigned > 0) {
+      this.debug(`Assigned ${assigned} unassigned paths to layers by color`);
+    }
+    if (shieldsMovedToOverlay > 0) {
+      this.debug(`Moved ${shieldsMovedToOverlay} text shield paths to overlay`);
+    }
   }
 
   generatePathStatistics(paths) {
