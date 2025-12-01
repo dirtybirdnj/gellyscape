@@ -62,10 +62,16 @@ export async function renderRecentFiles(files) {
       geoStr = `${lat}°, ${lon}°`;
     }
 
+    // Determine file type icon and badge
+    const isENC = file.isENC || file.name?.endsWith('.000');
+    const fileIcon = isENC ? 'ENC' : 'PDF';
+    const typeBadge = isENC ? '<span class="recent-file-enc">NOAA ENC</span>' :
+                     file.isGeoPDF ? '<span class="recent-file-geo">GeoPDF</span>' : '';
+
     item.innerHTML = `
-      <div class="recent-file-icon">PDF</div>
+      <div class="recent-file-icon">${fileIcon}</div>
       <div class="recent-file-info">
-        <div class="recent-file-name">${file.title || file.name}${file.isGeoPDF ? '<span class="recent-file-geo">GeoPDF</span>' : ''}</div>
+        <div class="recent-file-name">${file.title || file.name}${typeBadge}</div>
         <div class="recent-file-meta">${[pathsStr, geoStr, dateStr].filter(Boolean).join(' • ')}</div>
       </div>
       <button class="recent-file-remove" title="Remove from list">×</button>

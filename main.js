@@ -5,6 +5,7 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const os = require('os');
 const PDFProcessor = require('./src/pdf-processor');
+const ENCAPIProcessor = require('./src/enc-api-processor');
 const SVGGenerator = require('./src/svg-generator');
 
 const execAsync = promisify(exec);
@@ -129,12 +130,14 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 
-// Open file dialog and select PDF
+// Open file dialog and select PDF or ENC files
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'PDF Files', extensions: ['pdf'] }
+      { name: 'All Supported Files', extensions: ['pdf', '000'] },
+      { name: 'PDF Files', extensions: ['pdf'] },
+      { name: 'NOAA ENC Charts (S-57)', extensions: ['000'] }
     ]
   });
 
@@ -145,54 +148,118 @@ ipcMain.handle('dialog:openFile', async () => {
   return filePaths[0];
 });
 
-// Helper: Validate PDF file and return buffer if valid
-async function validatePDFFile(filePath) {
+// Helper: Detect file type from extension and content
+function detectFileType(filePath, buffer) {
+  const ext = path.extname(filePath).toLowerCase();
+
+  // Check by extension first
+  if (ext === '.000') {
+    return 'enc';
+  }
+
+  if (ext === '.pdf') {
+    // Verify it's actually a PDF by checking magic bytes
+    const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
+    if (buffer.length >= pdfMagicBytes.length &&
+        buffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
+      return 'pdf';
+    }
+  }
+
+  // Try to detect by content
+  const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
+  if (buffer.length >= pdfMagicBytes.length &&
+      buffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
+    return 'pdf';
+  }
+
+  // S-57 files start with specific ISO 8211 header
+  // Check for DDR leader (first 24 bytes define the record)
+  if (buffer.length >= 24) {
+    // ISO 8211 files typically start with record length in ASCII
+    const first5 = buffer.subarray(0, 5).toString('ascii');
+    if (/^\d{5}$/.test(first5)) {
+      return 'enc';
+    }
+  }
+
+  return 'unknown';
+}
+
+// Helper: Validate and read file, returning buffer and type
+async function validateAndReadFile(filePath) {
   const fileExtension = path.extname(filePath).toLowerCase();
-  if (fileExtension !== '.pdf') {
-    return { error: `Invalid file type: ${fileExtension || 'unknown'}. Only PDF files are supported.` };
+  const supportedExtensions = ['.pdf', '.000'];
+
+  if (!supportedExtensions.includes(fileExtension)) {
+    return {
+      error: `Invalid file type: ${fileExtension || 'unknown'}. Supported formats: PDF (.pdf), NOAA ENC (.000)`
+    };
   }
 
   const fileBuffer = await fs.readFile(filePath);
-  const pdfMagicBytes = Buffer.from('%PDF-', 'utf8');
-  if (fileBuffer.length < pdfMagicBytes.length ||
-      !fileBuffer.subarray(0, pdfMagicBytes.length).equals(pdfMagicBytes)) {
-    return { error: 'File does not appear to be a valid PDF.' };
+  const fileType = detectFileType(filePath, fileBuffer);
+
+  if (fileType === 'unknown') {
+    return { error: 'Unable to determine file type. Please select a valid PDF or S-57 ENC file.' };
   }
 
-  return { buffer: fileBuffer };
+  return { buffer: fileBuffer, fileType };
 }
 
-// Process PDF and keep paths in main process
+// Legacy wrapper for backwards compatibility
+async function validatePDFFile(filePath) {
+  const result = await validateAndReadFile(filePath);
+  if (result.error) return result;
+  if (result.fileType !== 'pdf') {
+    return { error: 'File does not appear to be a valid PDF.' };
+  }
+  return { buffer: result.buffer };
+}
+
+// Process PDF or ENC file and keep paths in main process
 // Only sends layer metadata to renderer, not the full path data
 ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
   try {
     event.sender.send('pdf:progress', {
       operation: 'Loading',
-      detail: 'Reading PDF file...'
+      detail: 'Reading file...'
     });
 
-    const validation = await validatePDFFile(filePath);
+    const validation = await validateAndReadFile(filePath);
     if (validation.error) {
       return { success: false, error: validation.error };
     }
 
-    const processor = new PDFProcessor(validation.buffer);
-    processor.setProgressCallback((progress) => {
-      event.sender.send('pdf:progress', progress);
-    });
+    let result;
 
-    const result = await processor.process();
-
-    // Validate that this is a GeoPDF with extractable layers
-    const isGeoPDF = result.metadata?.isGeoPDF || false;
-    const hasLayers = result.metadata?.layers?.length > 0;
-    const hasPaths = result.contentPaths?.paths?.length > 0;
-
-    if (!isGeoPDF && !hasLayers && !hasPaths) {
+    if (validation.fileType === 'enc') {
+      // .000 files require the API - direct file parsing is complex
       return {
         success: false,
-        error: 'This PDF does not appear to be a USGS GeoPDF.\n\nGellyScape works with:\n• US Topo maps (7.5-minute, 1:24,000 scale)\n• 100K and 250K scale USGS maps\n• GeoPDF files from nationalmap.gov\n\nDownload free USGS topo maps at:\nhttps://apps.nationalmap.gov/downloader/'
+        error: 'Local S-57 (.000) files are not directly supported.\n\nUse window.electronAPI.fetchENCArea() to load NOAA ENC chart data by geographic coordinates.\n\nExample:\nwindow.electronAPI.fetchENCArea(\n  { minLon: -73.25, minLat: 44.45, maxLon: -73.20, maxLat: 44.50 },\n  { scaleBand: "harbour", layers: ["coastline", "depthContour"] }\n)'
       };
+
+    } else {
+      // Process PDF file
+      const processor = new PDFProcessor(validation.buffer);
+      processor.setProgressCallback((progress) => {
+        event.sender.send('pdf:progress', progress);
+      });
+
+      result = await processor.process();
+
+      // Validate that this is a GeoPDF with extractable layers
+      const isGeoPDF = result.metadata?.isGeoPDF || false;
+      const hasLayers = result.metadata?.layers?.length > 0;
+      const hasPaths = result.contentPaths?.paths?.length > 0;
+
+      if (!isGeoPDF && !hasLayers && !hasPaths) {
+        return {
+          success: false,
+          error: 'This PDF does not appear to be a USGS GeoPDF.\n\nGellyScape works with:\n• US Topo maps (7.5-minute, 1:24,000 scale)\n• 100K and 250K scale USGS maps\n• GeoPDF files from nationalmap.gov\n\nDownload free USGS topo maps at:\nhttps://apps.nationalmap.gov/downloader/\n\nFor NOAA ENC charts, use the API:\nwindow.electronAPI.fetchENCArea({ minLon, minLat, maxLon, maxLat })'
+        };
+      }
     }
 
     // Store paths in main process
@@ -213,13 +280,15 @@ ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
     }
 
     // Get layer info (lightweight - just names and counts)
-    const layerInfo = currentSVGGenerator.getAvailableLayers();
+    // For ENC files, use the layerInfo from the processor if available
+    const layerInfo = result.layerInfo || currentSVGGenerator.getAvailableLayers();
 
     // Track in recent files
     const pathCount = currentPDFPaths.length;
     await addRecentFile(filePath, {
       ...result.metadata,
-      pathCount
+      pathCount,
+      isENC: result.metadata.isENC || false
     });
 
     event.sender.send('pdf:progress', {
@@ -240,7 +309,71 @@ ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
       }
     };
   } catch (error) {
-    console.error('Error processing PDF:', error);
+    console.error('Error processing file:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Fetch NOAA ENC data via API for a geographic area
+ipcMain.handle('enc:fetchArea', async (event, { bounds, options }) => {
+  try {
+    event.sender.send('pdf:progress', {
+      operation: 'Loading',
+      detail: 'Fetching NOAA ENC chart data...'
+    });
+
+    const processor = new ENCAPIProcessor(bounds, {
+      scaleBand: options?.scaleBand || 'harbour',
+      layers: options?.layers || ['coastline', 'depthContour', 'shoreline']
+    });
+
+    processor.setProgressCallback((progress) => {
+      event.sender.send('pdf:progress', progress);
+    });
+
+    const result = await processor.process();
+
+    // Store paths in main process
+    currentPDFPaths = result.contentPaths?.paths || [];
+    currentPDFMetadata = result.metadata;
+
+    // Create SVG generator with paths
+    currentSVGGenerator = new SVGGenerator(currentPDFPaths);
+
+    // Set neatline if available
+    if (result.metadata.neatline) {
+      currentSVGGenerator.setNeatline(result.metadata.neatline);
+    }
+
+    // Set page dimensions
+    if (result.metadata.pageDimensions) {
+      currentSVGGenerator.setPageDimensions(result.metadata.pageDimensions);
+    }
+
+    // Get layer info
+    const layerInfo = result.layerInfo || currentSVGGenerator.getAvailableLayers();
+    const pathCount = currentPDFPaths.length;
+
+    event.sender.send('pdf:progress', {
+      operation: 'Complete',
+      detail: `Loaded ${pathCount} features from NOAA ENC`
+    });
+
+    return {
+      success: true,
+      data: {
+        metadata: result.metadata,
+        layerInfo: layerInfo,
+        pathCount: pathCount,
+        pageCount: 1,
+        bounds: result.metadata.neatline
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching ENC data:', error);
     return {
       success: false,
       error: error.message
@@ -254,7 +387,7 @@ ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, u
     if (!currentSVGGenerator) {
       return {
         success: false,
-        error: 'No PDF loaded. Please load a PDF first.'
+        error: 'No file loaded. Please load a GeoPDF or NOAA ENC chart first.'
       };
     }
 
@@ -286,7 +419,7 @@ ipcMain.handle('svg:export', async (event, { enabledLayers, bounds, options, fil
     if (!currentSVGGenerator) {
       return {
         success: false,
-        error: 'No PDF loaded. Please load a PDF first.'
+        error: 'No file loaded. Please load a GeoPDF or ENC chart first.'
       };
     }
 
@@ -332,7 +465,7 @@ ipcMain.handle('svg:export', async (event, { enabledLayers, bounds, options, fil
 // Get current layer info (if PDF is already loaded)
 ipcMain.handle('pdf:getLayerInfo', async () => {
   if (!currentSVGGenerator) {
-    return { success: false, error: 'No PDF loaded' };
+    return { success: false, error: 'No file loaded' };
   }
   return {
     success: true,
@@ -344,7 +477,7 @@ ipcMain.handle('pdf:getLayerInfo', async () => {
 // Get detailed debug info about layers and bounds
 ipcMain.handle('pdf:getDebugInfo', async () => {
   if (!currentSVGGenerator) {
-    return { success: false, error: 'No PDF loaded' };
+    return { success: false, error: 'No file loaded' };
   }
   return {
     success: true,
@@ -380,7 +513,7 @@ ipcMain.handle('pdf:extractText', async (event, filePath) => {
 ipcMain.handle('pdf:getLayerPaths', async (event, layerName) => {
   try {
     if (!currentSVGGenerator) {
-      return { paths: [], message: 'No PDF loaded' };
+      return { paths: [], message: 'No file loaded' };
     }
 
     // Parse layer name to extract base layer and color

@@ -66,6 +66,35 @@ export async function displayMetadata(metadata, info, data) {
   }
   metadataDiv.appendChild(docSection);
 
+  // === NOAA ENC CHART INFO ===
+  if (metadata.isENC) {
+    const encSection = createSection('NOAA ENC Chart');
+    encSection.appendChild(createItem('Format', 'S-57 (IHO Standard)'));
+
+    if (metadata.format) {
+      encSection.appendChild(createItem('Type', metadata.format));
+    }
+
+    if (metadata.layerCount) {
+      encSection.appendChild(createItem('Feature Layers', metadata.layerCount.toString()));
+    }
+
+    // Geographic bounds
+    if (metadata.geoBounds) {
+      const gb = metadata.geoBounds;
+      encSection.appendChild(createItem('Latitude Range',
+        `${gb.minLat?.toFixed(4)}° to ${gb.maxLat?.toFixed(4)}°`));
+      encSection.appendChild(createItem('Longitude Range',
+        `${gb.minLon?.toFixed(4)}° to ${gb.maxLon?.toFixed(4)}°`));
+    }
+
+    if (metadata.projection) {
+      encSection.appendChild(createItem('Projection', metadata.projection));
+    }
+
+    metadataDiv.appendChild(encSection);
+  }
+
   // === MAP CLASSIFICATION (USGS Format) ===
   if (metadata.usgsFormat) {
     const mapSection = createSection('Map Classification');

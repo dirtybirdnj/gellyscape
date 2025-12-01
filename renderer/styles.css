@@ -845,6 +845,16 @@ body {
   margin-left: 6px;
 }
 
+.recent-file-enc {
+  display: inline-block;
+  background: #0078d7;
+  color: white;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.7em;
+  margin-left: 6px;
+}
+
 .recent-file-remove {
   background: none;
   border: none;

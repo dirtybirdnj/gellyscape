@@ -11,6 +11,9 @@ window.electronAPI = {
   processPDFLightweight: (filePath) => ipcRenderer.invoke('pdf:processLightweight', filePath),
   getLayerInfo: () => ipcRenderer.invoke('pdf:getLayerInfo'),
 
+  // NOAA ENC chart data via API
+  fetchENCArea: (bounds, options) => ipcRenderer.invoke('enc:fetchArea', { bounds, options }),
+
   // SVG generation (runs in main process)
   generateSVG: (options) => ipcRenderer.invoke('svg:generate', options),
   exportSVG: (options) => ipcRenderer.invoke('svg:export', options),
