@@ -16,7 +16,7 @@ import { updateMapStats } from './stats.js';
 // ============================================
 
 export async function handleExportSVG() {
-  const { whiteBackgroundCheck } = getElements();
+  const { whiteBackgroundCheck, flatExportCheck } = getElements();
 
   // If crop was applied, open the file in Finder
   if (state.cropApplied && state.lastSavedFilePath) {
@@ -36,13 +36,18 @@ export async function handleExportSVG() {
   }
 
   showLoadingGear();
-  updateMapStats('Generating SVG...');
+  const isFlatExport = flatExportCheck?.checked || false;
+  updateMapStats(isFlatExport ? 'Generating flat SVG...' : 'Generating SVG...');
 
   try {
     const svgResult = await window.electronAPI.generateSVG({
       enabledLayers: Array.from(state.enabledLayers),
       bounds: state.cachedBounds,
-      options: { whiteBackground: whiteBackgroundCheck?.checked || false }
+      options: {
+        whiteBackground: whiteBackgroundCheck?.checked || false,
+        flatExport: isFlatExport,
+        includeMetadata: isFlatExport  // Include data-color/data-layer in flat exports
+      }
     });
 
     if (!svgResult.success) {

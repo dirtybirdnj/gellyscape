@@ -52,6 +52,7 @@ export function getElements() {
     // Export controls
     exportSvgBtn: document.getElementById('exportSvgBtn'),
     whiteBackgroundCheck: document.getElementById('whiteBackgroundCheck'),
+    flatExportCheck: document.getElementById('flatExportCheck'),
     exportStatusDiv: document.getElementById('exportStatus'),
     exportLayersListDiv: document.getElementById('exportLayersList'),
 

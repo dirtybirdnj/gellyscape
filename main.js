@@ -249,6 +249,10 @@ ipcMain.handle('pdf:processLightweight', async (event, filePath) => {
 });
 
 // Generate SVG from stored paths (runs in main process)
+// Options:
+//   - whiteBackground: add white background rect
+//   - flatExport: use flat structure optimized for pen plotters
+//   - includeMetadata: add data-color and data-layer attributes (flat export only)
 ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, uiOptions }) => {
   try {
     if (!currentSVGGenerator) {
@@ -258,13 +262,23 @@ ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, u
       };
     }
 
-    // UI options for preview (neatline, document border)
-    const uiOpts = {
-      showNeatline: uiOptions?.showNeatline !== false, // Default true
-      showDocBorder: uiOptions?.showDocBorder !== false // Default true
-    };
+    let result;
+    if (options && options.flatExport) {
+      // Use flat export optimized for pen plotters
+      result = currentSVGGenerator.generateFlat(enabledLayers, {
+        whiteBackground: options.whiteBackground || false,
+        includeMetadata: options.includeMetadata || false
+      });
+      console.log('Flat SVG generated:', result.stats.pathCount, 'paths');
+    } else {
+      // UI options for preview (neatline, document border)
+      const uiOpts = {
+        showNeatline: uiOptions?.showNeatline !== false, // Default true
+        showDocBorder: uiOptions?.showDocBorder !== false // Default true
+      };
 
-    const result = currentSVGGenerator.generate(enabledLayers, bounds, uiOpts);
+      result = currentSVGGenerator.generate(enabledLayers, bounds, uiOpts);
+    }
 
     return {
       success: true,
@@ -281,6 +295,10 @@ ipcMain.handle('svg:generate', async (event, { enabledLayers, bounds, options, u
 });
 
 // Generate and save SVG directly to file (avoids sending large string to renderer)
+// Options:
+//   - whiteBackground: add white background rect
+//   - flatExport: use flat structure optimized for pen plotters (no groups, 0,0 origin)
+//   - includeMetadata: add data-color and data-layer attributes (flat export only)
 ipcMain.handle('svg:export', async (event, { enabledLayers, bounds, options, filePath }) => {
   try {
     if (!currentSVGGenerator) {
@@ -300,11 +318,21 @@ ipcMain.handle('svg:export', async (event, { enabledLayers, bounds, options, fil
       detail: 'Building vector graphics...'
     });
 
-    // Export WITHOUT UI overlays (no neatline/border)
-    const result = currentSVGGenerator.generate(enabledLayers, bounds, {
-      showNeatline: false,
-      showDocBorder: false
-    });
+    let result;
+    if (options && options.flatExport) {
+      // Use flat export optimized for pen plotters
+      result = currentSVGGenerator.generateFlat(enabledLayers, {
+        whiteBackground: options.whiteBackground || false,
+        includeMetadata: options.includeMetadata || false
+      });
+      console.log('Flat export generated:', result.stats.pathCount, 'paths');
+    } else {
+      // Standard export WITHOUT UI overlays (no neatline/border)
+      result = currentSVGGenerator.generate(enabledLayers, bounds, {
+        showNeatline: false,
+        showDocBorder: false
+      });
+    }
 
     event.sender.send('pdf:progress', {
       operation: 'Saving',

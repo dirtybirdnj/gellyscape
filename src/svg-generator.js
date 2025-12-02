@@ -3,6 +3,31 @@
  * Generates SVG from extracted PDF paths - runs in main process to avoid blocking renderer
  */
 
+/**
+ * Convert RGB array [r, g, b] to lowercase 6-character hex color (#rrggbb)
+ * @param {number[]} rgb - Array of [r, g, b] values (0-255)
+ * @returns {string} Lowercase hex color string
+ */
+function rgbToHex(rgb) {
+  if (!rgb || rgb.length < 3) return '#000000';
+  const [r, g, b] = rgb;
+  return '#' + [r, g, b].map(v => {
+    const hex = Math.round(Math.max(0, Math.min(255, v))).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('').toLowerCase();
+}
+
+/**
+ * Convert rgb() string to hex format
+ * @param {string} rgbStr - "rgb(r,g,b)" format string
+ * @returns {string} Lowercase hex color string
+ */
+function rgbStringToHex(rgbStr) {
+  const match = rgbStr.match(/rgb\((\d+),(\d+),(\d+)\)/);
+  if (!match) return rgbStr;
+  return rgbToHex([parseInt(match[1]), parseInt(match[2]), parseInt(match[3])]);
+}
+
 // Layer categorization - defines which layers are overlays/annotations vs plottable vector data
 const OVERLAY_LAYER_PATTERNS = [
   'Boundaries',
@@ -21,12 +46,13 @@ const OVERLAY_LAYER_PATTERNS = [
 ];
 
 // Specific color sublayers that should be treated as overlays (white shields)
+// Using hex format for consistency
 const OVERLAY_COLOR_SUBLAYERS = {
-  'Hydrography': ['rgb(255,255,255)'],
-  'Road Features': ['rgb(255,255,255)'],
-  'Transportation': ['rgb(255,255,255)'],
-  'Terrain': ['rgb(255,255,255)'],
-  'Woodland': ['rgb(255,255,255)']
+  'Hydrography': ['#ffffff'],
+  'Road Features': ['#ffffff'],
+  'Transportation': ['#ffffff'],
+  'Terrain': ['#ffffff'],
+  'Woodland': ['#ffffff']
 };
 
 /**
@@ -101,9 +127,9 @@ class SVGGenerator {
 
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
-        pathColor = `rgb(${path.strokeColor.join(',')})`;
+        pathColor = rgbToHex(path.strokeColor);
       } else if (path.fill && path.fillColor) {
-        pathColor = `rgb(${path.fillColor.join(',')})`;
+        pathColor = rgbToHex(path.fillColor);
       }
 
       if (!pathColor) return false;
@@ -125,9 +151,9 @@ class SVGGenerator {
         const samplePath = this.paths[0];
         let sampleColor = null;
         if (samplePath.stroke && samplePath.strokeColor) {
-          sampleColor = `rgb(${samplePath.strokeColor.join(',')})`;
+          sampleColor = rgbToHex(samplePath.strokeColor);
         } else if (samplePath.fill && samplePath.fillColor) {
-          sampleColor = `rgb(${samplePath.fillColor.join(',')})`;
+          sampleColor = rgbToHex(samplePath.fillColor);
         }
         console.log('Sample path layer:', samplePath.layer, 'color:', sampleColor);
         console.log('Sample sublayer would be:', `${samplePath.layer}::${sampleColor}`);
@@ -258,8 +284,12 @@ class SVGGenerator {
         const pathData = this.buildPathData(path.operations);
         if (!pathData) continue;
 
-        const fill = path.fill ? `rgb(${path.fillColor.join(',')})` : 'none';
-        const stroke = path.stroke ? `rgb(${path.strokeColor.join(',')})` : 'none';
+        const fill = path.fill ? rgbToHex(path.fillColor) : 'none';
+        const stroke = path.stroke ? rgbToHex(path.strokeColor) : 'none';
+
+        // Skip invisible paths (both fill and stroke are none)
+        if (fill === 'none' && stroke === 'none') continue;
+
         // Scale stroke width to maintain visibility in large coordinate spaces
         const baseStrokeWidth = path.lineWidth !== undefined ? path.lineWidth : (path.strokeWidth || 1);
         const strokeWidth = baseStrokeWidth * strokeScale;
@@ -366,9 +396,9 @@ class SVGGenerator {
     for (const path of paths) {
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
-        pathColor = `rgb(${path.strokeColor.join(',')})`;
+        pathColor = rgbToHex(path.strokeColor);
       } else if (path.fill && path.fillColor) {
-        pathColor = `rgb(${path.fillColor.join(',')})`;
+        pathColor = rgbToHex(path.fillColor);
       }
 
       const sublayerName = `${path.layer}::${pathColor}`;
@@ -439,10 +469,10 @@ class SVGGenerator {
       let isFill = false;
 
       if (path.stroke && path.strokeColor) {
-        pathColor = `rgb(${path.strokeColor.join(',')})`;
+        pathColor = rgbToHex(path.strokeColor);
         isStroke = true;
       } else if (path.fill && path.fillColor) {
-        pathColor = `rgb(${path.fillColor.join(',')})`;
+        pathColor = rgbToHex(path.fillColor);
         isFill = true;
       }
 
@@ -500,9 +530,9 @@ class SVGGenerator {
 
       let pathColor = null;
       if (path.stroke && path.strokeColor) {
-        pathColor = `rgb(${path.strokeColor.join(',')})`;
+        pathColor = rgbToHex(path.strokeColor);
       } else if (path.fill && path.fillColor) {
-        pathColor = `rgb(${path.fillColor.join(',')})`;
+        pathColor = rgbToHex(path.fillColor);
       }
       if (!pathColor) continue;
 
@@ -606,6 +636,165 @@ class SVGGenerator {
       })).sort((a, b) => b.totalPaths - a.totalPaths),
       layers: layersDetailed
     };
+  }
+
+  /**
+   * Generate flat SVG optimized for pen plotters and downstream tools
+   * - No nested groups (paths directly under svg root)
+   * - ViewBox starts at 0,0 (coordinates translated)
+   * - All paths have explicit fill/stroke attributes
+   * - Uses lowercase hex colors (#rrggbb)
+   * - No CSS classes or style blocks
+   * - Optionally adds data-color attribute for metadata
+   *
+   * @param {Set|Array} enabledLayers - Layer names to include
+   * @param {Object} options - Export options
+   * @param {boolean} options.whiteBackground - Add white background rect
+   * @param {boolean} options.includeMetadata - Add data-* attributes to paths
+   * @returns {Object} { svg: string, stats: { pathCount, layerCount } }
+   */
+  generateFlat(enabledLayers, options = {}) {
+    const { whiteBackground = false, includeMetadata = false } = options;
+    const enabledSet = enabledLayers instanceof Set ? enabledLayers : new Set(enabledLayers);
+
+    console.log('SVGGenerator.generateFlat called with', enabledSet.size, 'enabled layers');
+
+    // Filter paths by enabled layers
+    const filteredPaths = this.paths.filter(path => {
+      const layerName = path.layer || 'Unassigned';
+
+      let pathColor = null;
+      if (path.stroke && path.strokeColor) {
+        pathColor = rgbToHex(path.strokeColor);
+      } else if (path.fill && path.fillColor) {
+        pathColor = rgbToHex(path.fillColor);
+      }
+
+      if (!pathColor) return false;
+
+      const sublayerName = `${layerName}::${pathColor}`;
+      return enabledSet.has(sublayerName);
+    });
+
+    console.log('Flat export: filtered paths count:', filteredPaths.length);
+
+    if (filteredPaths.length === 0) {
+      return {
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"></svg>',
+        stats: { pathCount: 0, layerCount: 0 }
+      };
+    }
+
+    // Calculate bounds for coordinate translation
+    const bounds = this.calculateBounds(filteredPaths);
+    const width = bounds.width;
+    const height = bounds.height;
+    const offsetX = bounds.minX;
+    const offsetY = bounds.minY;
+
+    // ViewBox at 0,0 origin
+    const viewBox = `0 0 ${width} ${height}`;
+
+    // Build SVG with flat structure
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(width)}" height="${Math.round(height)}" viewBox="${viewBox}">
+`;
+
+    // Add white background if requested
+    if (whiteBackground) {
+      svg += `  <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>\n`;
+    }
+
+    // Track unique layers for stats
+    const uniqueLayers = new Set();
+    let pathCount = 0;
+
+    // Output all paths directly under svg root (no groups)
+    for (const path of filteredPaths) {
+      // Skip pure white fills
+      if (path.fill && path.fillColor) {
+        const [r, g, b] = path.fillColor;
+        if (r === 255 && g === 255 && b === 255) continue;
+      }
+
+      // Build path data with translated coordinates
+      const pathData = this.buildPathDataTranslated(path.operations, offsetX, offsetY);
+      if (!pathData) continue;
+
+      const fill = path.fill ? rgbToHex(path.fillColor) : 'none';
+      const stroke = path.stroke ? rgbToHex(path.strokeColor) : 'none';
+
+      // Skip invisible paths
+      if (fill === 'none' && stroke === 'none') continue;
+
+      const strokeWidth = path.lineWidth !== undefined ? path.lineWidth : (path.strokeWidth || 1);
+
+      // Build path element
+      let pathEl = `  <path d="${pathData}" fill="${fill}" stroke="${stroke}"`;
+      if (stroke !== 'none') {
+        pathEl += ` stroke-width="${strokeWidth}"`;
+      }
+
+      // Add metadata if requested
+      if (includeMetadata) {
+        const primaryColor = fill !== 'none' ? fill : stroke;
+        const layer = path.layer || 'Unassigned';
+        pathEl += ` data-color="${primaryColor}" data-layer="${this.escapeXml(layer)}"`;
+      }
+
+      pathEl += '/>\n';
+      svg += pathEl;
+
+      pathCount++;
+      uniqueLayers.add(`${path.layer}::${fill !== 'none' ? fill : stroke}`);
+    }
+
+    svg += '</svg>';
+
+    return {
+      svg,
+      stats: {
+        pathCount,
+        layerCount: uniqueLayers.size
+      }
+    };
+  }
+
+  /**
+   * Build SVG path data string with coordinate translation
+   * Translates all coordinates so viewBox can start at 0,0
+   * @param {Array} operations - Path operations
+   * @param {number} offsetX - X offset to subtract
+   * @param {number} offsetY - Y offset to subtract
+   * @returns {string} Path data string
+   */
+  buildPathDataTranslated(operations, offsetX, offsetY) {
+    if (!operations || operations.length === 0) return null;
+
+    const parts = [];
+    for (const op of operations) {
+      switch (op.type) {
+        case 'moveto':
+          parts.push(`M ${op.x - offsetX} ${op.y - offsetY}`);
+          break;
+        case 'lineto':
+          parts.push(`L ${op.x - offsetX} ${op.y - offsetY}`);
+          break;
+        case 'curveto':
+          parts.push(`C ${op.x1 - offsetX} ${op.y1 - offsetY} ${op.x2 - offsetX} ${op.y2 - offsetY} ${op.x3 - offsetX} ${op.y3 - offsetY}`);
+          break;
+        case 'rect':
+          const x = op.x - offsetX;
+          const y = op.y - offsetY;
+          parts.push(`M ${x} ${y} L ${x + op.width} ${y} L ${x + op.width} ${y + op.height} L ${x} ${y + op.height} Z`);
+          break;
+        case 'closepath':
+          parts.push('Z');
+          break;
+      }
+    }
+
+    return parts.join(' ');
   }
 }
 
