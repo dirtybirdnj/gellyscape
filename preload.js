@@ -54,5 +54,6 @@ window.electronAPI = {
 
   // Path inspection
   getLayerPaths: (layerName) => ipcRenderer.invoke('pdf:getLayerPaths', layerName),
-  getPathGeometry: (layerName, pathIndex) => ipcRenderer.invoke('pdf:getPathGeometry', { layerName, pathIndex })
+  getPathGeometry: (layerName, pathIndex) => ipcRenderer.invoke('pdf:getPathGeometry', { layerName, pathIndex }),
+  getLayerBounds: (layerName) => ipcRenderer.invoke('pdf:getLayerBounds', layerName)
 };

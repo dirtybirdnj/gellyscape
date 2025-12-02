@@ -463,10 +463,15 @@ ipcMain.handle('pdf:getLayerPaths', async (event, layerName) => {
         operationCount: path.operations?.length || 0,
         hasStroke: !!path.stroke,
         hasFill: !!path.fill,
+        strokeColor: path.stroke && path.strokeColor ? rgbToHex(path.strokeColor) : null,
+        fillColor: path.fill && path.fillColor ? rgbToHex(path.fillColor) : null,
+        lineWidth: path.lineWidth || path.strokeWidth || null,
         bounds: minX !== Infinity ? {
           minX, minY, maxX, maxY,
           width: maxX - minX,
-          height: maxY - minY
+          height: maxY - minY,
+          centerX: (minX + maxX) / 2,
+          centerY: (minY + maxY) / 2
         } : null
       });
     });
@@ -492,31 +497,139 @@ ipcMain.handle('pdf:getPathGeometry', async (event, { layerName, pathIndex }) =>
       return null;
     }
 
-    // Build SVG path data
+    // Calculate bounds
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    // Build SVG path data - handle both lowercase (moveto) and uppercase (M) formats
     let pathData = '';
     for (const op of path.operations) {
-      switch (op.type) {
-        case 'M':
+      const opType = op.type.toLowerCase();
+      switch (opType) {
+        case 'moveto':
+        case 'm':
           pathData += `M${op.x} ${op.y} `;
+          minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x);
+          minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y);
           break;
-        case 'L':
+        case 'lineto':
+        case 'l':
           pathData += `L${op.x} ${op.y} `;
+          minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x);
+          minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y);
           break;
-        case 'C':
-          pathData += `C${op.x1} ${op.y1} ${op.x2} ${op.y2} ${op.x} ${op.y} `;
+        case 'curveto':
+        case 'c':
+          pathData += `C${op.x1} ${op.y1} ${op.x2} ${op.y2} ${op.x3 || op.x} ${op.y3 || op.y} `;
+          // Include control points in bounds for curve
+          if (op.x1 !== undefined) { minX = Math.min(minX, op.x1); maxX = Math.max(maxX, op.x1); }
+          if (op.y1 !== undefined) { minY = Math.min(minY, op.y1); maxY = Math.max(maxY, op.y1); }
+          if (op.x2 !== undefined) { minX = Math.min(minX, op.x2); maxX = Math.max(maxX, op.x2); }
+          if (op.y2 !== undefined) { minY = Math.min(minY, op.y2); maxY = Math.max(maxY, op.y2); }
+          if (op.x3 !== undefined) { minX = Math.min(minX, op.x3); maxX = Math.max(maxX, op.x3); }
+          if (op.y3 !== undefined) { minY = Math.min(minY, op.y3); maxY = Math.max(maxY, op.y3); }
+          if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
+          if (op.y !== undefined) { minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y); }
           break;
-        case 'Q':
-          pathData += `Q${op.x1} ${op.y1} ${op.x} ${op.y} `;
+        case 'rect':
+          // Rectangle operation
+          pathData += `M${op.x} ${op.y} L${op.x + op.width} ${op.y} L${op.x + op.width} ${op.y + op.height} L${op.x} ${op.y + op.height} Z `;
+          minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x + op.width);
+          minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y + op.height);
           break;
-        case 'Z':
+        case 'closepath':
+        case 'z':
           pathData += 'Z ';
           break;
       }
     }
 
-    return { pathData: pathData.trim() };
+    // Return path data plus bounds for bounding box visualization
+    const bounds = minX !== Infinity ? {
+      minX, minY, maxX, maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2
+    } : null;
+
+    return {
+      pathData: pathData.trim(),
+      bounds,
+      fill: path.fill ? rgbToHex(path.fillColor) : null,
+      stroke: path.stroke ? rgbToHex(path.strokeColor) : null,
+      operationCount: path.operations.length
+    };
   } catch (error) {
     console.error('Error getting path geometry:', error);
+    return null;
+  }
+});
+
+// Get bounds for an entire layer (for layer-level highlighting)
+ipcMain.handle('pdf:getLayerBounds', async (event, layerName) => {
+  try {
+    if (!currentSVGGenerator) {
+      return null;
+    }
+
+    // Parse layer name to extract base layer and color
+    const [baseName, colorStr] = layerName.includes('::')
+      ? layerName.split('::')
+      : [layerName, null];
+
+    // Get paths matching this layer
+    const paths = currentSVGGenerator.paths || [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let pathCount = 0;
+
+    paths.forEach((path) => {
+      const pathLayer = path.layer || 'Unassigned';
+      if (pathLayer !== baseName) return;
+
+      // Check color match if specified
+      if (colorStr) {
+        let pathColor = null;
+        if (path.stroke && path.strokeColor) {
+          pathColor = rgbToHex(path.strokeColor);
+        } else if (path.fill && path.fillColor) {
+          pathColor = rgbToHex(path.fillColor);
+        }
+        if (pathColor !== colorStr) return;
+      }
+
+      pathCount++;
+
+      // Calculate bounds from this path's operations
+      if (path.operations) {
+        for (const op of path.operations) {
+          if (op.x !== undefined) { minX = Math.min(minX, op.x); maxX = Math.max(maxX, op.x); }
+          if (op.y !== undefined) { minY = Math.min(minY, op.y); maxY = Math.max(maxY, op.y); }
+          if (op.x1 !== undefined) { minX = Math.min(minX, op.x1); maxX = Math.max(maxX, op.x1); }
+          if (op.y1 !== undefined) { minY = Math.min(minY, op.y1); maxY = Math.max(maxY, op.y1); }
+          if (op.x2 !== undefined) { minX = Math.min(minX, op.x2); maxX = Math.max(maxX, op.x2); }
+          if (op.y2 !== undefined) { minY = Math.min(minY, op.y2); maxY = Math.max(maxY, op.y2); }
+          if (op.x3 !== undefined) { minX = Math.min(minX, op.x3); maxX = Math.max(maxX, op.x3); }
+          if (op.y3 !== undefined) { minY = Math.min(minY, op.y3); maxY = Math.max(maxY, op.y3); }
+        }
+      }
+    });
+
+    if (minX === Infinity) {
+      return { bounds: null, pathCount: 0 };
+    }
+
+    return {
+      bounds: {
+        minX, minY, maxX, maxY,
+        width: maxX - minX,
+        height: maxY - minY,
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        pathCount
+      }
+    };
+  } catch (error) {
+    console.error('Error getting layer bounds:', error);
     return null;
   }
 });

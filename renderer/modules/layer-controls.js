@@ -320,11 +320,28 @@ export function createLayerControlItem(layerName) {
   const label = document.createElement('label');
   label.className = 'checkbox-label';
   label.htmlFor = `layer-${safeId}`;
-  label.style.cssText = 'flex: 1; min-width: 0; cursor: help;';
+  label.style.cssText = 'flex: 1; min-width: 0;';
 
   const span = document.createElement('span');
   const displayName = getDescriptiveLayerName(baseName, colorStr);
   span.textContent = displayName;
+  span.style.cssText = 'cursor: pointer; padding: 2px 4px; border-radius: 3px; transition: background 0.15s;';
+  span.title = 'Click to highlight layer on map';
+
+  // Click layer name to highlight it on the map
+  span.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    highlightLayer(layerName);
+  });
+
+  span.addEventListener('mouseenter', () => {
+    span.style.background = 'rgba(102, 126, 234, 0.15)';
+  });
+
+  span.addEventListener('mouseleave', () => {
+    span.style.background = 'transparent';
+  });
 
   label.appendChild(checkbox);
   label.appendChild(span);
@@ -426,27 +443,43 @@ async function toggleLayerExpand(layerName, expandBtn, layerItem) {
       }
 
       if (pathDetails.paths && pathDetails.paths.length > 0) {
-        let listHtml = `<div style="margin-bottom: 6px; font-weight: 600; color: #667eea;">${pathDetails.paths.length} paths</div>`;
-        listHtml += '<div class="path-list" style="display: flex; flex-direction: column; gap: 2px;">';
+        let listHtml = `<div style="margin-bottom: 8px; font-weight: 600; color: #667eea; display: flex; justify-content: space-between; align-items: center;">
+          <span>${pathDetails.paths.length} paths</span>
+          <span style="font-weight: normal; font-size: 0.9em; color: #888;">Click to highlight</span>
+        </div>`;
+        listHtml += '<div class="path-list" style="display: flex; flex-direction: column; gap: 3px;">';
 
         const displayPaths = pathDetails.paths.slice(0, 100);
         displayPaths.forEach((path, idx) => {
           const opCount = path.operationCount || 0;
           const bounds = path.bounds;
-          const sizeInfo = bounds ? `${Math.round(bounds.width)}x${Math.round(bounds.height)}` : '';
+          const sizeInfo = bounds ? `${Math.round(bounds.width)}×${Math.round(bounds.height)}` : '';
+          const posInfo = bounds ? `@ (${Math.round(bounds.centerX)}, ${Math.round(bounds.centerY)})` : '';
+
+          // Type indicator
+          const typeIcon = path.hasFill && path.hasStroke ? '◐' :
+                          path.hasFill ? '●' : '○';
+          const typeTitle = path.hasFill && path.hasStroke ? 'Fill + Stroke' :
+                           path.hasFill ? 'Fill only' : 'Stroke only';
+
+          // Color indicator
+          const pathColor = path.fillColor || path.strokeColor || '#888';
 
           listHtml += `
             <div class="path-item" data-path-index="${path.index}" data-layer="${layerName}"
-                 style="display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; background: white; border-radius: 3px; border: 1px solid #e0e4ff; cursor: pointer;"
-                 onmouseenter="this.style.background='#e8ebff'" onmouseleave="this.style.background='white'">
-              <span style="color: #333;">Path ${idx + 1}</span>
-              <span style="color: #888; font-size: 0.9em;">${opCount} ops ${sizeInfo ? '• ' + sizeInfo : ''}</span>
+                 style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: white; border-radius: 4px; border: 1px solid #e0e4ff; cursor: pointer; transition: all 0.15s;"
+                 onmouseenter="this.style.background='#e8ebff'; this.style.borderColor='#667eea'"
+                 onmouseleave="this.style.background='white'; this.style.borderColor='#e0e4ff'">
+              <span style="color: ${pathColor}; font-size: 1.1em;" title="${typeTitle}">${typeIcon}</span>
+              <span style="color: #333; flex: 1; min-width: 0;">Path ${idx + 1}</span>
+              <span style="color: #666; font-size: 0.85em; white-space: nowrap;">${opCount} ops</span>
+              ${sizeInfo ? `<span style="color: #888; font-size: 0.85em; white-space: nowrap;" title="Size">${sizeInfo}</span>` : ''}
             </div>
           `;
         });
 
         if (pathDetails.paths.length > 100) {
-          listHtml += `<div style="color: #999; font-style: italic; padding: 4px;">... and ${pathDetails.paths.length - 100} more</div>`;
+          listHtml += `<div style="color: #999; font-style: italic; padding: 4px 8px; text-align: center;">... and ${pathDetails.paths.length - 100} more paths</div>`;
         }
 
         listHtml += '</div>';
@@ -489,32 +522,155 @@ function highlightPath(layerName, pathIndex) {
   clearPathHighlight();
 
   window.electronAPI.getPathGeometry(layerName, pathIndex).then(geometry => {
-    if (!geometry || !geometry.pathData) return;
+    if (!geometry) return;
 
     const highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     highlightGroup.id = 'path-highlight';
     highlightGroup.setAttribute('class', 'highlight-overlay');
 
-    const highlightPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    highlightPath.setAttribute('d', geometry.pathData);
-    highlightPath.setAttribute('fill', 'none');
-    highlightPath.setAttribute('stroke', '#ff0066');
-    highlightPath.setAttribute('stroke-width', '4');
-    highlightPath.setAttribute('stroke-linecap', 'round');
-    highlightPath.style.animation = 'pulse-highlight 1s ease-in-out infinite';
+    // Get viewBox for scaling stroke width
+    const viewBox = svgContainer.getAttribute('viewBox');
+    const viewBoxParts = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 1000, 1000];
+    const viewBoxWidth = viewBoxParts[2] || 1000;
+    const strokeScale = Math.max(1, viewBoxWidth / 500);
 
-    const outlinePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    outlinePath.setAttribute('d', geometry.pathData);
-    outlinePath.setAttribute('fill', 'none');
-    outlinePath.setAttribute('stroke', 'white');
-    outlinePath.setAttribute('stroke-width', '6');
-    outlinePath.setAttribute('stroke-linecap', 'round');
+    // Draw bounding box if we have bounds
+    if (geometry.bounds) {
+      const { minX, minY, width, height, centerX, centerY } = geometry.bounds;
+      const padding = Math.max(width, height) * 0.05; // 5% padding
 
-    highlightGroup.appendChild(outlinePath);
-    highlightGroup.appendChild(highlightPath);
+      // Bounding box background (semi-transparent)
+      const boxBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      boxBg.setAttribute('x', minX - padding);
+      boxBg.setAttribute('y', minY - padding);
+      boxBg.setAttribute('width', width + padding * 2);
+      boxBg.setAttribute('height', height + padding * 2);
+      boxBg.setAttribute('fill', 'rgba(255, 0, 102, 0.1)');
+      boxBg.setAttribute('stroke', 'none');
+      highlightGroup.appendChild(boxBg);
+
+      // Bounding box outline (dashed)
+      const boxOutline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      boxOutline.setAttribute('x', minX - padding);
+      boxOutline.setAttribute('y', minY - padding);
+      boxOutline.setAttribute('width', width + padding * 2);
+      boxOutline.setAttribute('height', height + padding * 2);
+      boxOutline.setAttribute('fill', 'none');
+      boxOutline.setAttribute('stroke', '#ff0066');
+      boxOutline.setAttribute('stroke-width', 2 * strokeScale);
+      boxOutline.setAttribute('stroke-dasharray', `${8 * strokeScale},${4 * strokeScale}`);
+      boxOutline.style.animation = 'pulse-highlight 1s ease-in-out infinite';
+      highlightGroup.appendChild(boxOutline);
+
+      // Center crosshair
+      const crossSize = Math.min(width, height) * 0.15;
+      const crossH = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      crossH.setAttribute('x1', centerX - crossSize);
+      crossH.setAttribute('y1', centerY);
+      crossH.setAttribute('x2', centerX + crossSize);
+      crossH.setAttribute('y2', centerY);
+      crossH.setAttribute('stroke', '#ff0066');
+      crossH.setAttribute('stroke-width', 2 * strokeScale);
+      highlightGroup.appendChild(crossH);
+
+      const crossV = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      crossV.setAttribute('x1', centerX);
+      crossV.setAttribute('y1', centerY - crossSize);
+      crossV.setAttribute('x2', centerX);
+      crossV.setAttribute('y2', centerY + crossSize);
+      crossV.setAttribute('stroke', '#ff0066');
+      crossV.setAttribute('stroke-width', 2 * strokeScale);
+      highlightGroup.appendChild(crossV);
+    }
+
+    // Draw the actual path if we have path data
+    if (geometry.pathData) {
+      const outlinePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      outlinePath.setAttribute('d', geometry.pathData);
+      outlinePath.setAttribute('fill', 'none');
+      outlinePath.setAttribute('stroke', 'white');
+      outlinePath.setAttribute('stroke-width', 6 * strokeScale);
+      outlinePath.setAttribute('stroke-linecap', 'round');
+      highlightGroup.appendChild(outlinePath);
+
+      const highlightPathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      highlightPathEl.setAttribute('d', geometry.pathData);
+      highlightPathEl.setAttribute('fill', 'none');
+      highlightPathEl.setAttribute('stroke', '#ff0066');
+      highlightPathEl.setAttribute('stroke-width', 4 * strokeScale);
+      highlightPathEl.setAttribute('stroke-linecap', 'round');
+      highlightPathEl.style.animation = 'pulse-highlight 1s ease-in-out infinite';
+      highlightGroup.appendChild(highlightPathEl);
+    }
+
     svgContainer.appendChild(highlightGroup);
   }).catch(err => {
     console.error('Error highlighting path:', err);
+  });
+}
+
+/**
+ * Highlight an entire layer with a bounding box
+ */
+export function highlightLayer(layerName) {
+  const { mapPreviewDiv } = getElements();
+  const svgContainer = mapPreviewDiv.querySelector('svg');
+  if (!svgContainer) return;
+
+  clearPathHighlight();
+
+  window.electronAPI.getLayerBounds(layerName).then(result => {
+    if (!result || !result.bounds) return;
+
+    const { minX, minY, width, height, centerX, centerY, pathCount } = result.bounds;
+
+    const highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    highlightGroup.id = 'path-highlight';
+    highlightGroup.setAttribute('class', 'highlight-overlay');
+
+    // Get viewBox for scaling stroke width
+    const viewBox = svgContainer.getAttribute('viewBox');
+    const viewBoxParts = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 1000, 1000];
+    const viewBoxWidth = viewBoxParts[2] || 1000;
+    const strokeScale = Math.max(1, viewBoxWidth / 500);
+    const padding = Math.max(width, height) * 0.02; // 2% padding
+
+    // Bounding box background (semi-transparent)
+    const boxBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    boxBg.setAttribute('x', minX - padding);
+    boxBg.setAttribute('y', minY - padding);
+    boxBg.setAttribute('width', width + padding * 2);
+    boxBg.setAttribute('height', height + padding * 2);
+    boxBg.setAttribute('fill', 'rgba(102, 126, 234, 0.15)');
+    boxBg.setAttribute('stroke', 'none');
+    highlightGroup.appendChild(boxBg);
+
+    // Bounding box outline
+    const boxOutline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    boxOutline.setAttribute('x', minX - padding);
+    boxOutline.setAttribute('y', minY - padding);
+    boxOutline.setAttribute('width', width + padding * 2);
+    boxOutline.setAttribute('height', height + padding * 2);
+    boxOutline.setAttribute('fill', 'none');
+    boxOutline.setAttribute('stroke', '#667eea');
+    boxOutline.setAttribute('stroke-width', 3 * strokeScale);
+    boxOutline.style.animation = 'pulse-highlight 1.5s ease-in-out infinite';
+    highlightGroup.appendChild(boxOutline);
+
+    // Center marker
+    const markerSize = Math.min(width, height) * 0.1;
+    const centerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    centerCircle.setAttribute('cx', centerX);
+    centerCircle.setAttribute('cy', centerY);
+    centerCircle.setAttribute('r', markerSize);
+    centerCircle.setAttribute('fill', 'rgba(102, 126, 234, 0.3)');
+    centerCircle.setAttribute('stroke', '#667eea');
+    centerCircle.setAttribute('stroke-width', 2 * strokeScale);
+    highlightGroup.appendChild(centerCircle);
+
+    svgContainer.appendChild(highlightGroup);
+  }).catch(err => {
+    console.error('Error highlighting layer:', err);
   });
 }
 
