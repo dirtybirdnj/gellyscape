@@ -13,6 +13,20 @@ import { getElements } from './dom-elements.js';
 import { showLoadingGear, hideLoadingGear } from './ui-helpers.js';
 import { updateMapStats, updateExportLayersList } from './stats.js';
 
+/**
+ * Convert RGB array to lowercase 6-char hex color
+ * @param {number[]} rgb - [r, g, b] array (0-255)
+ * @returns {string} Hex color like #rrggbb
+ */
+function rgbToHex(rgb) {
+  if (!rgb || rgb.length < 3) return '#000000';
+  const [r, g, b] = rgb;
+  return '#' + [r, g, b].map(v => {
+    const hex = Math.round(Math.max(0, Math.min(255, v))).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('').toLowerCase();
+}
+
 // ============================================
 // Main Preview Generation
 // ============================================
@@ -153,9 +167,9 @@ export function renderCanvasPreview() {
 
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
-      pathColor = `rgb(${path.strokeColor.join(',')})`;
+      pathColor = rgbToHex(path.strokeColor);
     } else if (path.fill && path.fillColor) {
-      pathColor = `rgb(${path.fillColor.join(',')})`;
+      pathColor = rgbToHex(path.fillColor);
     }
 
     if (!pathColor) return false;
@@ -267,9 +281,9 @@ export function renderCanvasPreview() {
 
     let color;
     if (path.stroke && path.strokeColor) {
-      color = `rgb(${path.strokeColor.join(',')})`;
+      color = rgbToHex(path.strokeColor);
     } else if (path.fill && path.fillColor) {
-      color = `rgb(${path.fillColor.join(',')})`;
+      color = rgbToHex(path.fillColor);
     }
 
     if (!color) return;
@@ -350,9 +364,9 @@ export function generateSVG(isExport) {
 
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
-      pathColor = `rgb(${path.strokeColor.join(',')})`;
+      pathColor = rgbToHex(path.strokeColor);
     } else if (path.fill && path.fillColor) {
-      pathColor = `rgb(${path.fillColor.join(',')})`;
+      pathColor = rgbToHex(path.fillColor);
     }
 
     if (!pathColor) return false;
@@ -428,9 +442,9 @@ export function generateSVG(isExport) {
 
     let pathColor = null;
     if (path.stroke && path.strokeColor) {
-      pathColor = `rgb(${path.strokeColor.join(',')})`;
+      pathColor = rgbToHex(path.strokeColor);
     } else if (path.fill && path.fillColor) {
-      pathColor = `rgb(${path.fillColor.join(',')})`;
+      pathColor = rgbToHex(path.fillColor);
     }
 
     const sublayerName = `${layerName}::${pathColor}`;
@@ -483,8 +497,8 @@ export function generateSVG(isExport) {
         }
       }).join(' ');
 
-      const fill = path.fill ? `rgb(${path.fillColor.join(',')})` : 'none';
-      const stroke = path.stroke ? `rgb(${path.strokeColor.join(',')})` : 'none';
+      const fill = path.fill ? rgbToHex(path.fillColor) : 'none';
+      const stroke = path.stroke ? rgbToHex(path.strokeColor) : 'none';
       const strokeWidth = path.lineWidth !== undefined ? path.lineWidth : (path.strokeWidth || 1);
 
       svg += `    <path d="${pathData}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>\n`;

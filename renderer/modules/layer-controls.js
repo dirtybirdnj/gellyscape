@@ -14,6 +14,20 @@ import { showColorTooltip, hideColorTooltip, copyColorToClipboard, showColorPick
 import { generateMapPreview } from './map-preview.js';
 import { updateStatsIndicator, updateExportLayersList, updateTabCounts } from './stats.js';
 
+/**
+ * Convert RGB array to lowercase 6-char hex color
+ * @param {number[]} rgb - [r, g, b] array (0-255)
+ * @returns {string} Hex color like #rrggbb
+ */
+function rgbToHex(rgb) {
+  if (!rgb || rgb.length < 3) return '#000000';
+  const [r, g, b] = rgb;
+  return '#' + [r, g, b].map(v => {
+    const hex = Math.round(Math.max(0, Math.min(255, v))).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('').toLowerCase();
+}
+
 // ============================================
 // Layer Extraction
 // ============================================
@@ -71,9 +85,9 @@ export function extractLayersFromData(data) {
 
       let colorStr = null;
       if (path.stroke && path.strokeColor) {
-        colorStr = `rgb(${path.strokeColor.join(',')})`;
+        colorStr = rgbToHex(path.strokeColor);
       } else if (path.fill && path.fillColor) {
-        colorStr = `rgb(${path.fillColor.join(',')})`;
+        colorStr = rgbToHex(path.fillColor);
       }
 
       if (colorStr) {
@@ -93,7 +107,7 @@ export function extractLayersFromData(data) {
 
         data.contentPaths.textObjectsByLayer[textLayer].forEach(textObj => {
           if (textObj.fillColor && Array.isArray(textObj.fillColor)) {
-            const colorStr = `rgb(${textObj.fillColor.join(',')})`;
+            const colorStr = rgbToHex(textObj.fillColor);
             layerColors[textLayerName].add(colorStr);
             layerColorSublayers.add(`${textLayerName}::${colorStr}`);
           }
@@ -258,6 +272,7 @@ export function createLayerControlItem(layerName) {
   if (window.layerPathCounts && window.layerPathCounts[layerName]) {
     pathCount = window.layerPathCounts[layerName];
   } else if (state.currentPDFData && state.currentPDFData.contentPaths) {
+    // Fallback: filter paths (only used in legacy mode, not lightweight mode)
     const paths = state.currentPDFData.contentPaths.paths;
     const matchingPaths = paths.filter(p => {
       if (p.layer !== baseName) return false;
@@ -265,9 +280,9 @@ export function createLayerControlItem(layerName) {
 
       let pathColor = null;
       if (p.stroke && p.strokeColor) {
-        pathColor = `rgb(${p.strokeColor.join(',')})`;
+        pathColor = rgbToHex(p.strokeColor);
       } else if (p.fill && p.fillColor) {
-        pathColor = `rgb(${p.fillColor.join(',')})`;
+        pathColor = rgbToHex(p.fillColor);
       }
       return pathColor === colorStr;
     });

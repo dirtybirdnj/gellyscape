@@ -88,6 +88,61 @@ class SVGGenerator {
     };
     this.neatline = null; // Will be set if neatline bounds are available
     this.pageDimensions = null; // PDF page dimensions in points
+
+    // Cached data - computed once, reused for performance
+    this._cachedBounds = null; // Bounds for all paths
+    this._cachedPathsByLayer = null; // Pre-grouped paths by sublayer
+  }
+
+  /**
+   * Get cached bounds for all paths (computed lazily, cached afterward)
+   * @returns {Object} { minX, minY, maxX, maxY, width, height }
+   */
+  getAllPathsBounds() {
+    if (!this._cachedBounds) {
+      console.log('Computing bounds for', this.paths.length, 'paths (will be cached)');
+      this._cachedBounds = this.calculateBounds(this.paths);
+    }
+    return this._cachedBounds;
+  }
+
+  /**
+   * Get paths pre-grouped by sublayer (computed lazily, cached afterward)
+   * Single-pass grouping with color conversion included
+   * @returns {Object} { sublayerName: [paths...], ... }
+   */
+  getPathsByLayer() {
+    if (!this._cachedPathsByLayer) {
+      console.log('Pre-grouping', this.paths.length, 'paths by layer (will be cached)');
+      this._cachedPathsByLayer = {};
+
+      for (const path of this.paths) {
+        let pathColor = null;
+        if (path.stroke && path.strokeColor) {
+          pathColor = rgbToHex(path.strokeColor);
+        } else if (path.fill && path.fillColor) {
+          pathColor = rgbToHex(path.fillColor);
+        }
+        if (!pathColor) continue;
+
+        const layerName = path.layer || 'Unassigned';
+        const sublayerName = `${layerName}::${pathColor}`;
+
+        if (!this._cachedPathsByLayer[sublayerName]) {
+          this._cachedPathsByLayer[sublayerName] = [];
+        }
+        this._cachedPathsByLayer[sublayerName].push(path);
+      }
+    }
+    return this._cachedPathsByLayer;
+  }
+
+  /**
+   * Invalidate caches (call when paths change)
+   */
+  invalidateCache() {
+    this._cachedBounds = null;
+    this._cachedPathsByLayer = null;
   }
 
   /**
@@ -108,7 +163,7 @@ class SVGGenerator {
 
   /**
    * Generate SVG string from paths
-   * @param {Set|Array} enabledLayers - Layer names to include (as sublayer format: "LayerName::rgb(r,g,b)")
+   * @param {Set|Array} enabledLayers - Layer names to include (as sublayer format: "LayerName::#hexcolor")
    * @param {Object} bounds - Optional pre-calculated bounds { minX, minY, maxX, maxY, width, height }
    * @param {Object} uiOptions - UI overlay options { showNeatline: bool, showDocBorder: bool }
    * @returns {Object} { svg: string, stats: { pathCount, layerCount } }
@@ -118,49 +173,26 @@ class SVGGenerator {
     const enabledSet = enabledLayers instanceof Set ? enabledLayers : new Set(enabledLayers);
 
     console.log('SVGGenerator.generate called with', enabledSet.size, 'enabled layers');
-    console.log('Total paths available:', this.paths.length);
 
-    // Filter paths by enabled layers
-    const filteredPaths = this.paths.filter(path => {
-      // Use 'Unassigned' for paths without layer (matches renderer behavior)
-      const layerName = path.layer || 'Unassigned';
+    // Use cached paths-by-layer for O(1) layer lookup instead of O(n) filter
+    const pathsByLayer = this.getPathsByLayer();
+    const enabledLayerNames = Array.from(enabledSet).filter(name => pathsByLayer[name]);
 
-      let pathColor = null;
-      if (path.stroke && path.strokeColor) {
-        pathColor = rgbToHex(path.strokeColor);
-      } else if (path.fill && path.fillColor) {
-        pathColor = rgbToHex(path.fillColor);
-      }
+    // Count filtered paths without iterating all paths
+    let filteredPathCount = 0;
+    for (const layerName of enabledLayerNames) {
+      filteredPathCount += pathsByLayer[layerName].length;
+    }
 
-      if (!pathColor) return false;
+    console.log('Filtered paths count:', filteredPathCount, '(from', enabledLayerNames.length, 'enabled layers)');
 
-      const sublayerName = `${layerName}::${pathColor}`;
-      return enabledSet.has(sublayerName);
-    });
+    // Use cached bounds for all paths
+    const allBounds = bounds || this.getAllPathsBounds();
 
-    console.log('Filtered paths count:', filteredPaths.length);
-
-    // Log filtered paths bounds for debugging (not used for viewBox)
-    const filteredBounds = this.calculateBounds(filteredPaths);
-    console.log('Filtered paths bounds (debug only):', JSON.stringify(filteredBounds));
-
-    if (filteredPaths.length === 0) {
-      // Debug: show first few enabled layers and first few path layer names
+    if (filteredPathCount === 0) {
       console.log('No paths matched! First 5 enabled layers:', Array.from(enabledSet).slice(0, 5));
-      if (this.paths.length > 0) {
-        const samplePath = this.paths[0];
-        let sampleColor = null;
-        if (samplePath.stroke && samplePath.strokeColor) {
-          sampleColor = rgbToHex(samplePath.strokeColor);
-        } else if (samplePath.fill && samplePath.fillColor) {
-          sampleColor = rgbToHex(samplePath.fillColor);
-        }
-        console.log('Sample path layer:', samplePath.layer, 'color:', sampleColor);
-        console.log('Sample sublayer would be:', `${samplePath.layer}::${sampleColor}`);
 
-        // Return empty SVG with correct dimensions to maintain consistent view
-        // Calculate bounds from ALL paths so the view doesn't jump when layers are re-enabled
-        const allBounds = bounds || this.calculateBounds(this.paths);
+      if (this.paths.length > 0) {
         const padding = this.options.padding;
         const viewBoxX = allBounds.minX - padding;
         const viewBoxY = allBounds.minY - padding;
@@ -195,13 +227,8 @@ class SVGGenerator {
       };
     }
 
-    // Calculate bounds from ALL paths (not just filtered) to maintain consistent view
-    // This prevents the "zoom to selection" behavior when selecting small layers
-    console.log('Calculating bounds from ALL paths. this.paths count:', this.paths.length);
-    const allPathBounds = this.calculateBounds(this.paths);
-    console.log('ALL paths bounds:', JSON.stringify(allPathBounds));
-    console.log('Provided bounds param:', bounds ? JSON.stringify(bounds) : 'null');
-    const pathBounds = bounds || allPathBounds;
+    // Use cached bounds - no recalculation needed
+    const pathBounds = allBounds;
     let { minX, minY, maxX, maxY, width, height } = pathBounds;
     console.log('Using bounds:', JSON.stringify({ minX, minY, maxX, maxY, width, height }));
 
@@ -255,16 +282,15 @@ class SVGGenerator {
       svg += `  <rect x="${viewBoxX}" y="${viewBoxY}" width="${viewBoxWidth}" height="${viewBoxHeight}" fill="white"/>\n`;
     }
 
-    // Group paths by layer
-    const pathsByLayer = this.groupPathsByLayer(filteredPaths);
-    const layerNames = Object.keys(pathsByLayer);
+    // Use enabled layers from cached pathsByLayer (already computed at top of function)
+    // enabledLayerNames was filtered to only include layers that exist in pathsByLayer
 
     // Separate layers into vector and overlay categories
-    const vectorLayers = layerNames.filter(name => !isOverlayLayer(name));
-    const overlayLayers = layerNames.filter(name => isOverlayLayer(name));
+    const vectorLayers = enabledLayerNames.filter(name => !isOverlayLayer(name));
+    const overlayLayers = enabledLayerNames.filter(name => isOverlayLayer(name));
 
     // Add title
-    svg += `  <title>GeoPDF Export - ${layerNames.length} layers, ${filteredPaths.length} paths</title>\n`;
+    svg += `  <title>GeoPDF Export - ${enabledLayerNames.length} layers, ${filteredPathCount} paths</title>\n`;
 
     // Helper function to render a layer's paths
     const renderLayerPaths = (layerName, indent = '    ') => {
@@ -352,8 +378,8 @@ class SVGGenerator {
     return {
       svg,
       stats: {
-        pathCount: filteredPaths.length,
-        layerCount: layerNames.length
+        pathCount: filteredPathCount,
+        layerCount: enabledLayerNames.length
       }
     };
   }
@@ -659,22 +685,15 @@ class SVGGenerator {
 
     console.log('SVGGenerator.generateFlat called with', enabledSet.size, 'enabled layers');
 
-    // Filter paths by enabled layers
-    const filteredPaths = this.paths.filter(path => {
-      const layerName = path.layer || 'Unassigned';
+    // Use cached paths-by-layer for O(1) layer lookup
+    const pathsByLayer = this.getPathsByLayer();
+    const enabledLayerNames = Array.from(enabledSet).filter(name => pathsByLayer[name]);
 
-      let pathColor = null;
-      if (path.stroke && path.strokeColor) {
-        pathColor = rgbToHex(path.strokeColor);
-      } else if (path.fill && path.fillColor) {
-        pathColor = rgbToHex(path.fillColor);
-      }
-
-      if (!pathColor) return false;
-
-      const sublayerName = `${layerName}::${pathColor}`;
-      return enabledSet.has(sublayerName);
-    });
+    // Count filtered paths and collect them for bounds calculation
+    const filteredPaths = [];
+    for (const layerName of enabledLayerNames) {
+      filteredPaths.push(...pathsByLayer[layerName]);
+    }
 
     console.log('Flat export: filtered paths count:', filteredPaths.length);
 
@@ -685,7 +704,7 @@ class SVGGenerator {
       };
     }
 
-    // Calculate bounds for coordinate translation
+    // For flat export, we need bounds from filtered paths (for 0,0 translation)
     const bounds = this.calculateBounds(filteredPaths);
     const width = bounds.width;
     const height = bounds.height;

@@ -9,6 +9,20 @@ const SVGGenerator = require('./src/svg-generator');
 
 const execAsync = promisify(exec);
 
+/**
+ * Convert RGB array to lowercase 6-char hex color
+ * @param {number[]} rgb - [r, g, b] array (0-255)
+ * @returns {string} Hex color like #rrggbb
+ */
+function rgbToHex(rgb) {
+  if (!rgb || rgb.length < 3) return '#000000';
+  const [r, g, b] = rgb;
+  return '#' + [r, g, b].map(v => {
+    const hex = Math.round(Math.max(0, Math.min(255, v))).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('').toLowerCase();
+}
+
 let mainWindow;
 let gellyScapeDir;
 let recentFilesPath;
@@ -428,9 +442,9 @@ ipcMain.handle('pdf:getLayerPaths', async (event, layerName) => {
       if (colorStr) {
         let pathColor = null;
         if (path.stroke && path.strokeColor) {
-          pathColor = `rgb(${path.strokeColor.join(',')})`;
+          pathColor = rgbToHex(path.strokeColor);
         } else if (path.fill && path.fillColor) {
-          pathColor = `rgb(${path.fillColor.join(',')})`;
+          pathColor = rgbToHex(path.fillColor);
         }
         if (pathColor !== colorStr) return;
       }
